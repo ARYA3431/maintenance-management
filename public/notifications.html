@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alerts - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      🔧 Maintenance Management
+    </div>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link">⚙️ Equipment</a>
+      <a href="/reports.html" class="nav-link">📊 Reports</a>
+      <a href="/notifications.html" class="nav-link active">
+        🔔 Alerts
+        <span id="alertBadge" class="badge" style="display:none;">0</span>
+      </a>
+      <a href="#" id="logoutBtn" class="nav-link">🚪 Logout</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Stats Row -->
+    <div class="stats-row" style="margin-bottom:1.5rem;">
+      <div class="stat-card stat-danger">
+        <div class="stat-icon">🚨</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statCriticalAlerts">0</span>
+          <span class="stat-label">Critical Alerts</span>
+        </div>
+      </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-icon">⚠️</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statTotalUnread">0</span>
+          <span class="stat-label">Unread Alerts</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📋</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statTotalAlerts">0</span>
+          <span class="stat-label">Total Alerts</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-header">
+      <h2>🔔 All Alerts</h2>
+      <button class="btn btn-secondary" id="markAllReadBtn">
+        ✔️ Mark All Read
+      </button>
+    </div>
+
+    <div id="notificationsList"></div>
+  </div>
+
+  <script src="/js/notifications.js"></script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Maintenance Check</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="mobile-body">
+  <!-- Slim mobile nav -->
+  <nav class="mobile-nav">
+    <a href="javascript:history.back()" class="mobile-nav-back">‹</a>
+    <div class="mobile-nav-title">Maintenance Check</div>
+  </nav>
+
+  <div class="mobile-container">
+
+    <!-- Employee ID Verification -->
+    <div id="employeeIdStep" style="display:none;">
+      <div class="mobile-fullscreen-card">
+        <div class="fullscreen-icon">🪪</div>
+        <h2>Enter Employee ID</h2>
+        <p class="muted">Please enter your Employee ID to continue.</p>
+        <div style="margin:1.5rem 0;">
+          <input type="text" id="employeeIdInput" class="mobile-input" inputmode="numeric" pattern="[0-9]*"
+            placeholder="e.g. 1016229" autocomplete="off" style="text-align:center;font-size:1.3rem;letter-spacing:2px;">
+        </div>
+        <button class="mobile-btn mobile-btn-primary mobile-btn-full" id="verifyEmployeeBtn" onclick="verifyEmployee()">
+          Verify &amp; Continue
+        </button>
+        <p id="employeeError" class="muted small" style="color:#dc2626;margin-top:0.75rem;display:none;"></p>
+        <div class="mobile-steps" style="margin-top:1.5rem;">
+          <div class="mobile-step done">✓ QR Scanned</div>
+          <div class="mobile-step active">Employee ID</div>
+          <div class="mobile-step">GPS Check</div>
+          <div class="mobile-step">Checklist</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Location verifying -->
+    <div id="locationCheck" style="display:none;">
+      <div class="mobile-fullscreen-card">
+        <div class="mobile-spinner"></div>
+        <h2>Verifying Location</h2>
+        <p class="muted">Please allow location access when prompted.</p>
+        <p id="locationStatus" class="muted small"></p>
+        <div class="mobile-steps">
+          <div class="mobile-step done">✓ QR Scanned</div>
+          <div class="mobile-step done">✓ Employee ID</div>
+          <div class="mobile-step active">Verifying GPS</div>
+          <div class="mobile-step">Checklist</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Location denied -->
+    <div id="locationDenied" style="display:none;">
+      <div class="mobile-fullscreen-card">
+        <div class="fullscreen-icon">📍</div>
+        <h2>Location Issue</h2>
+        <p id="locationDeniedMsg" class="muted" style="white-space:pre-line;">Could not access GPS location.</p>
+        <button class="mobile-btn mobile-btn-primary" onclick="attemptLocation()" style="margin-top:1rem;">🔄 Retry Location</button>
+        <button class="mobile-btn mobile-btn-secondary" onclick="skipLocation()" style="margin-top:0.5rem;">Continue without GPS</button>
+        <p class="muted small" style="margin-top:1rem;color:#dc2626;">⚠️ Without GPS, your report will be marked as "unverified location".</p>
+      </div>
+    </div>
+
+    <!-- === MAIN FORM === -->
+    <div id="maintenanceSection" style="display:none;">
+
+      <!-- Equipment info strip -->
+      <div class="eq-info-strip">
+        <div class="eq-info-left">
+          <h2 id="eqName"></h2>
+          <p id="eqLocation" class="muted small"></p>
+          <p id="eqDescription" class="muted small"></p>
+        </div>
+        <div id="locationBadge" class="gps-chip verified" style="display:none;">
+          📍 GPS OK
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="form-progress-bar">
+        <div class="form-progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <p class="progress-text" id="progressText">0 of 0 completed</p>
+
+      <form id="maintenanceForm">
+        <!-- Fields rendered as cards -->
+        <div id="fieldsContainer" class="field-cards-container"></div>
+
+        <!-- Notes -->
+        <div class="field-card">
+          <div class="field-card-label">
+            <span class="field-icon">📝</span>
+            <span>Additional Notes</span>
+          </div>
+          <textarea id="notes" class="mobile-textarea" rows="3" placeholder="Any observations, issues, or recommendations..."></textarea>
+        </div>
+
+        <!-- Photo -->
+        <div class="field-card photo-card">
+          <div class="field-card-label">
+            <span class="field-icon">📷</span>
+            <span>Photo Evidence</span>
+            <span class="optional-tag">Optional</span>
+          </div>
+          <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none;" onchange="handlePhoto(this)">
+          <div id="photoPreview" class="photo-preview-mobile" style="display:none;">
+            <img id="photoImg">
+            <button type="button" class="remove-photo-btn" onclick="removePhoto()">✕</button>
+          </div>
+          <button type="button" class="photo-capture-btn" id="photoCaptureBtn" onclick="document.getElementById('photoInput').click()">
+            <span class="photo-btn-icon">📷</span>
+            <span>Tap to take photo</span>
+          </button>
+        </div>
+
+        <!-- Submit (sticky) -->
+        <div class="submit-sticky">
+          <button type="submit" class="mobile-btn mobile-btn-primary mobile-btn-full" id="submitBtn">
+            Submit Report
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Success -->
+    <div id="successSection" style="display:none;">
+      <div class="mobile-fullscreen-card">
+        <div class="success-checkmark">
+          <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="25" fill="none" stroke="#16a34a" stroke-width="2"/><path fill="none" stroke="#16a34a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>
+        </div>
+        <h2>Submitted!</h2>
+        <p id="successMessage" class="muted"></p>
+        <div class="success-btns">
+          <p class="muted" style="margin-bottom:1rem;">Use your phone camera to scan the next QR code.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Abnormality popup -->
+    <div id="abnormalityPopup" class="mobile-modal" style="display:none;">
+      <div class="mobile-modal-overlay" onclick="document.getElementById('abnormalityPopup').style.display='none'"></div>
+      <div class="mobile-modal-sheet">
+        <div class="mobile-modal-handle"></div>
+        <div class="abnormal-alert-header">
+          <span class="abnormal-icon">⚠️</span>
+          <h3 id="abnormalTitle">Abnormality Detected</h3>
+        </div>
+        <p id="abnormalityMessage" class="abnormal-msg"></p>
+        <p class="muted small">Admin has been notified automatically.</p>
+        <button class="mobile-btn mobile-btn-danger mobile-btn-full" onclick="document.getElementById('abnormalityPopup').style.display='none'">
+          Acknowledged
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/js/maintenance.js"></script>
+</body>
+</html>

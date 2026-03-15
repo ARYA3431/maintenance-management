@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engineer Dashboard - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      🔧 Maintenance Management
+    </div>
+    <div class="nav-links">
+      <span class="nav-link">📷 Use Phone Camera to Scan</span>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Welcome Banner -->
+    <div class="welcome-banner">
+      <div>
+        <h1>👋 Welcome, <span id="userName">Engineer</span></h1>
+        <p>Scan equipment QR codes to perform maintenance checks.</p>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="stats-row">
+      <div class="stat-card stat-action">
+        <div class="stat-icon" style="font-size:2.5rem;">📷</div>
+        <div class="stat-info">
+          <span class="stat-number" style="font-size:1rem;">Use Phone Camera</span>
+          <span class="stat-label">Point camera at QR code on equipment</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⚙️</div>
+        <div class="stat-info">
+          <span class="stat-number" id="eqCount">0</span>
+          <span class="stat-label">Equipment Available</span>
+        </div>
+      </div>
+      <div class="stat-card stat-danger">
+        <div class="stat-icon">🔴</div>
+        <div class="stat-info">
+          <span class="stat-number" id="critCount">0</span>
+          <span class="stat-label">Critical Equipment</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- How It Works -->
+    <div class="card" style="margin-bottom:1.5rem;">
+      <h3 style="margin-bottom:1rem;">📖 How It Works</h3>
+      <div class="steps-row">
+        <div class="step-item">
+          <div class="step-number">1</div>
+          <div class="step-text">
+            <strong>Scan QR Code</strong>
+            <span>Use the scanner or your phone camera</span>
+          </div>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step-item">
+          <div class="step-number">2</div>
+          <div class="step-text">
+            <strong>Fill Checklist</strong>
+            <span>Enter readings & observations</span>
+          </div>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step-item">
+          <div class="step-number">3</div>
+          <div class="step-text">
+            <strong>Submit Report</strong>
+            <span>Admin is auto-notified of issues</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2 style="margin-bottom:1rem;">📋 Available Equipment</h2>
+    <div id="equipmentList" class="card-grid"></div>
+
+    <!-- QR Modal -->
+    <div id="qrModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="document.getElementById('qrModal').style.display='none'"></div>
+      <div class="modal-content modal-sm">
+        <div class="modal-header">
+          <h2>📱 QR Code</h2>
+          <button class="modal-close" onclick="document.getElementById('qrModal').style.display='none'">&times;</button>
+        </div>
+        <div id="qrContent" class="qr-display"></div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="window.print()">
+            🖨️ Print QR Code
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Load equipment
+    fetch('/api/equipment').then(r => {
+      if (!r.ok) return [];
+      return r.json();
+    }).then(equipment => {
+      const container = document.getElementById('equipmentList');
+
+      // Update stats
+      document.getElementById('eqCount').textContent = equipment.length;
+      document.getElementById('critCount').textContent = equipment.filter(e => e.is_critical).length;
+
+      if (!equipment.length) {
+        container.innerHTML = '<div class="card text-center"><p>No equipment registered yet.</p></div>';
+        return;
+      }
+      container.innerHTML = equipment.map(eq => `
+        <div class="card equipment-card ${eq.is_critical ? 'equipment-critical' : ''}">
+          <div class="eq-card-header">
+            <h3>⚙️ ${escapeHtml(eq.name)}</h3>
+            ${eq.is_critical ? '<span class="tag tag-abnormal">🔴 CRITICAL</span>' : '<span class="tag tag-normal">✅ Standard</span>'}
+          </div>
+          <p class="subtitle">📍 ${escapeHtml(eq.location_name)}</p>
+          <p class="hint">${escapeHtml(eq.description || '')}</p>
+          <div class="card-actions">
+            <button class="btn btn-primary btn-sm" onclick="showQR('${eq.id}')">
+              📱 Show QR
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }).catch(() => {});
+
+    async function showQR(equipmentId) {
+      const res = await fetch('/api/equipment/' + encodeURIComponent(equipmentId) + '/qr');
+      if (!res.ok) { alert('Could not load QR code'); return; }
+      const data = await res.json();
+      document.getElementById('qrContent').innerHTML =
+        '<img src="' + data.qr_image + '" alt="QR Code">' +
+        '<p class="scan-url">' + escapeHtml(data.scan_url) + '</p>' +
+        '<button class="btn btn-secondary btn-sm" style="margin-top:0.75rem;" onclick="copyUrl(\'' + escapeHtml(data.scan_url) + '\', this)">' +
+        '📋 Copy URL</button>' +
+        '<p class="hint" style="margin-top:0.5rem;">Scan this QR code at the equipment location.</p>';
+      document.getElementById('qrModal').style.display = 'flex';
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function copyUrl(url, btn) {
+      navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => { btn.textContent = '📋 Copy URL'; }, 2000);
+      }).catch(() => {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => { btn.textContent = '📋 Copy URL'; }, 2000);
+      });
+    }
+
+  </script>
+</body>
+</html>

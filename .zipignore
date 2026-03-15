@@ -1,0 +1,5 @@
+node_modules/
+maintenance.db
+stderr.log
+stdout.log
+public/uploads/

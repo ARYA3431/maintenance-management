@@ -1,0 +1,5 @@
+node_modules/
+maintenance.db
+*.db
+public/uploads/*
+!public/uploads/.gitkeep

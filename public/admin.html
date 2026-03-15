@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      🔧 Maintenance Management
+    </div>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link active">⚙️ Equipment</a>
+      <a href="/reports.html" class="nav-link">📊 Reports</a>
+      <a href="/notifications.html" class="nav-link">
+        🔔 Alerts
+        <span id="alertBadge" class="badge" style="display:none;">0</span>
+      </a>
+      <a href="#" id="logoutBtn" class="nav-link">🚪 Logout</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Welcome Banner -->
+    <div class="welcome-banner">
+      <div>
+        <h1>👋 Welcome, Admin</h1>
+        <p>Manage your equipment, generate QR codes, and monitor maintenance activities.</p>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-icon">⚙️</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statTotal">0</span>
+          <span class="stat-label">Total Equipment</span>
+        </div>
+      </div>
+      <div class="stat-card stat-danger">
+        <div class="stat-icon">🔴</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statCritical">0</span>
+          <span class="stat-label">Critical Equipment</span>
+        </div>
+      </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-icon">🔔</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statAlerts">0</span>
+          <span class="stat-label">Unread Alerts</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-header">
+      <h2>📋 Equipment List</h2>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="downloadTemplateBtn" title="Download Excel template">
+          📥 Template
+        </button>
+        <button class="btn btn-secondary" id="importExcelBtn" title="Import equipment from Excel">
+          📤 Import Excel
+        </button>
+        <button class="btn btn-secondary" id="exportExcelBtn" title="Export equipment to Excel">
+          📊 Export Excel
+        </button>
+        <button class="btn btn-primary" id="addEquipmentBtn">
+          ➕ Add Equipment
+        </button>
+      </div>
+      <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;">
+    </div>
+
+    <div id="equipmentList" class="card-grid"></div>
+
+    <div id="addModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeModal()"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>➕ Add New Equipment</h2>
+          <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="equipmentForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Equipment Name *</label>
+              <input type="text" id="eqName" required placeholder="e.g., HVAC Unit #3">
+            </div>
+            <div class="form-group">
+              <label>Location Name *</label>
+              <input type="text" id="eqLocation" required placeholder="e.g., Building A, Floor 2">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="eqDescription" placeholder="Equipment details..."></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Latitude *</label>
+              <input type="number" id="eqLat" step="any" required placeholder="e.g., 28.6139">
+            </div>
+            <div class="form-group">
+              <label>Longitude *</label>
+              <input type="number" id="eqLng" step="any" required placeholder="e.g., 77.2090">
+            </div>
+            <div class="form-group">
+              <label>Radius (meters)</label>
+              <input type="number" id="eqRadius" value="100" min="10" max="5000" placeholder="100">
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary" id="useMyLocationBtn">
+            📍 Use My Current Location
+          </button>
+
+          <div class="form-group" style="margin-top:1rem;">
+            <label class="checkbox-label" style="font-size:1rem;">
+              <input type="checkbox" id="eqCritical">
+              🔴 Critical Equipment (any submission will notify admin)
+            </label>
+          </div>
+
+          <hr>
+          <h3>📋 Maintenance Check Fields</h3>
+          <p class="hint">Define the fields engineers will fill during maintenance checks. Set min/max for numeric fields to enable automatic abnormality detection.</p>
+
+          <div id="fieldsContainer"></div>
+          <button type="button" class="btn btn-secondary" id="addFieldBtn">
+            ➕ Add Field
+          </button>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary">
+              💾 Create Equipment
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="qrModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeQrModal()"></div>
+      <div class="modal-content modal-sm">
+        <div class="modal-header">
+          <h2>📱 QR Code</h2>
+          <button class="modal-close" onclick="closeQrModal()">&times;</button>
+        </div>
+        <div id="qrContent" class="qr-display"></div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="printQR()">
+            🖨️ Print QR Code
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="historyModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeHistoryModal()"></div>
+      <div class="modal-content modal-lg">
+        <div class="modal-header">
+          <h2>📜 Maintenance History</h2>
+          <button class="modal-close" onclick="closeHistoryModal()">&times;</button>
+        </div>
+        <div id="historyContent"></div>
+      </div>
+    </div>
+
+    <!-- Critical Alert Popup (real-time) -->
+    <div id="criticalAlertPopup" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="dismissCriticalAlert()"></div>
+      <div class="modal-content modal-sm abnormality-popup">
+        <div class="modal-header abnormality-header">
+          <h2>🚨 CRITICAL ALERT</h2>
+        </div>
+        <div class="abnormality-body">
+          <h3 id="criticalAlertEquipment" style="margin-bottom:0.5rem;"></h3>
+          <p id="criticalAlertMessage" style="font-size:0.95rem;line-height:1.6;"></p>
+          <p class="hint" style="margin-top:1rem;">This is a critical field abnormality requiring immediate attention.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="dismissCriticalAlert()">Dismiss</button>
+          <a href="/notifications.html" class="btn btn-danger">🔔 View All Alerts</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+  <script>
+    // Real-time critical alert polling for admin
+    let lastCriticalId = null;
+    async function checkCriticalAlerts() {
+      try {
+        const res = await fetch('/api/notifications/latest-critical');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && data.id !== lastCriticalId) {
+          lastCriticalId = data.id;
+          document.getElementById('criticalAlertEquipment').textContent =
+            '⚙️ ' + data.equipment_name + ' — ' + data.location_name;
+          document.getElementById('criticalAlertMessage').textContent = data.message;
+          document.getElementById('criticalAlertPopup').style.display = 'flex';
+          // Play alert sound
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            osc.type = 'square';
+            gain.gain.value = 0.3;
+            osc.start();
+            setTimeout(() => { osc.stop(); ctx.close(); }, 500);
+          } catch(e) {}
+        }
+      } catch(e) {}
+    }
+    checkCriticalAlerts();
+    setInterval(checkCriticalAlerts, 10000); // Check every 10 seconds
+
+    function dismissCriticalAlert() {
+      document.getElementById('criticalAlertPopup').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
