@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abnormality Tracker - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .tracker-container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .filter-bar select, .filter-bar input { padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 13px; }
+    .filter-bar button { padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: white; border-radius: 12px; padding: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .stat-card .number { font-size: 32px; font-weight: 800; }
+    .stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .stat-card.danger .number { color: #ef4444; }
+    .stat-card.warning .number { color: #f59e0b; }
+    .stat-card.success .number { color: #22c55e; }
+    .stat-card.info .number { color: #2563eb; }
+    .finding-card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #e2e8f0; }
+    .finding-card.emergency { border-left-color: #dc2626; background: #fef2f2; }
+    .finding-card.critical { border-left-color: #ef4444; }
+    .finding-card.warning { border-left-color: #f59e0b; }
+    .finding-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .finding-title { font-weight: 700; font-size: 15px; }
+    .finding-meta { color: #64748b; font-size: 13px; margin: 6px 0; }
+    .finding-badges { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .badge.severity-emergency { background: #dc2626; color: white; }
+    .badge.severity-critical { background: #fee2e2; color: #991b1b; }
+    .badge.severity-warning { background: #fef3c7; color: #92400e; }
+    .badge.severity-normal { background: #dbeafe; color: #1e40af; }
+    .badge.status-open { background: #fef3c7; color: #92400e; }
+    .badge.status-acknowledged { background: #dbeafe; color: #1e40af; }
+    .badge.status-in_progress { background: #d1fae5; color: #065f46; }
+    .badge.status-resolved { background: #d1fae5; color: #065f46; }
+    .badge.status-closed { background: #f1f5f9; color: #475569; }
+    .badge.status-deferred { background: #e2e8f0; color: #64748b; }
+    .badge.repeat { background: #fef3c7; color: #92400e; }
+    .badge.exception { background: #f1f5f9; color: #475569; }
+    .detail-row { display: flex; gap: 16px; font-size: 13px; color: #475569; }
+    .detail-row .lbl { color: #94a3b8; min-width: 100px; }
+    .action-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .action-btns button { padding: 6px 14px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; }
+    .btn-ack { background: #dbeafe; color: #1e40af; }
+    .btn-progress { background: #fef3c7; color: #92400e; }
+    .btn-resolve { background: #d1fae5; color: #065f46; }
+    .btn-close { background: #f1f5f9; color: #475569; }
+    .btn-defer { background: #e2e8f0; color: #64748b; }
+    .section-title { font-size: 18px; font-weight: 700; margin: 24px 0 12px; }
+    .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .class-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; }
+    .class-card .name { font-weight: 600; font-size: 13px; margin-top: 8px; }
+    .class-card .count { font-size: 24px; font-weight: 800; }
+    .repeat-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 20px; }
+    .repeat-table th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 12px; color: #64748b; }
+    .repeat-table td { padding: 10px 12px; border-top: 1px solid #f1f5f9; font-size: 13px; }
+    .repeat-table tr:hover { background: #f8fafc; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; font-size: 16px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tab { padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: 600; background: white; border: 2px solid #e2e8f0; }
+    .tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" title="Toggle navigation menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link active" title="Track abnormalities and exception classes">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends over time">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulter reports">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse store inventory and locations">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Track follow-up tasks and compliance">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View and export maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notification history">🔔 Alerts</a>
+      <a href="/admin.html" class="nav-link" title="Go back to admin dashboard">← Back</a>
+    </div>
+  </nav>
+
+  <div class="tracker-container">
+    <h1 style="margin:0 0 20px;">⚠️ Abnormality Tracker</h1>
+
+    <div class="stats-grid" id="findingStats"></div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchView('findings', this)" title="View currently open and unresolved findings">Open Findings</div>
+      <div class="tab" onclick="switchView('repeats', this)" title="View issues that have occurred multiple times">Repeated Issues</div>
+      <div class="tab" onclick="switchView('classification', this)" title="View findings grouped by exception classification">Exception Classes</div>
+      <div class="tab" onclick="switchView('all', this)" title="View all findings regardless of status">All Findings</div>
+    </div>
+
+    <div class="filter-bar">
+      <select id="filterSeverity" onchange="loadFindings()" title="Filter findings by severity level">
+        <option value="">All Severities</option>
+        <option value="emergency">🔴 Emergency</option>
+        <option value="critical">🟠 Critical</option>
+        <option value="warning">🟡 Warning</option>
+        <option value="normal">🔵 Normal</option>
+      </select>
+      <select id="filterException" onchange="loadFindings()" title="Filter by abnormality classification type">
+        <option value="">All Classifications</option>
+        <option value="abnormal_but_running">Abnormal but Running</option>
+        <option value="watchlist">Watchlist</option>
+        <option value="urgent_maintenance">Urgent Maintenance</option>
+        <option value="immediate_shutdown">Immediate Shutdown</option>
+      </select>
+      <select id="filterRepeat" onchange="loadFindings()" title="Filter to show only repeated issues">
+        <option value="">All</option>
+        <option value="1">Repeats Only</option>
+      </select>
+    </div>
+
+    <div id="findingsView"></div>
+    <div id="repeatsView" style="display:none;"></div>
+    <div id="classView" style="display:none;"></div>
+    <div id="allView" style="display:none;"></div>
+  </div>
+
+  <script>
+    let findings = [];
+    let stats = {};
+    let repeats = [];
+    let currentView = 'findings';
+
+    async function loadAll() {
+      await Promise.all([loadFindings(), loadStats(), loadRepeats()]);
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/maintenance/findings/stats');
+        stats = await res.json();
+        renderStats();
+      } catch (e) { console.error(e); }
+    }
+
+    async function loadFindings() {
+      const severity = document.getElementById('filterSeverity').value;
+      const exception_class = document.getElementById('filterException').value;
+      const is_repeat = document.getElementById('filterRepeat').value;
+      const statusFilter = currentView === 'findings' ? 'open' : '';
+
+      let url = `/api/maintenance/findings?`;
+      if (statusFilter) url += `status=${statusFilter}&`;
+      if (severity) url += `severity=${severity}&`;
+      if (exception_class) url += `exception_class=${exception_class}&`;
+      if (is_repeat) url += `is_repeat=${is_repeat}&`;
+
+      try {
+        const res = await fetch(url);
+        findings = await res.json();
+        renderFindings();
+      } catch (e) { console.error(e); }
+    }
+
+    async function loadRepeats() {
+      try {
+        const res = await fetch('/api/maintenance/repeated-abnormalities');
+        repeats = await res.json();
+        renderRepeats();
+      } catch (e) { console.error(e); }
+    }
+
+    function renderStats() {
+      document.getElementById('findingStats').innerHTML = `
+        <div class="stat-card danger"><div class="number">${stats.open || 0}</div><div class="label">Open Findings</div></div>
+        <div class="stat-card success"><div class="number">${stats.resolved || 0}</div><div class="label">Resolved</div></div>
+        <div class="stat-card danger"><div class="number">${stats.critical || 0}</div><div class="label">Critical/Emergency</div></div>
+        <div class="stat-card warning"><div class="number">${stats.repeats || 0}</div><div class="label">Repeat Issues</div></div>
+      `;
+    }
+
+    function renderFindings() {
+      const target = currentView === 'all' ? 'allView' : 'findingsView';
+      const container = document.getElementById(target);
+      if (findings.length === 0) {
+        container.innerHTML = '<div class="empty-state">No findings found</div>';
+        return;
+      }
+      container.innerHTML = findings.map(renderFindingCard).join('');
+    }
+
+    function renderFindingCard(f) {
+      return `
+        <div class="finding-card ${f.severity}">
+          <div class="finding-header">
+            <span class="finding-title">${f.field_name || 'Finding'}</span>
+            <span class="badge severity-${f.severity}">${f.severity.toUpperCase()}</span>
+          </div>
+          <div class="finding-meta">
+            🏭 ${f.equipment_name} · 📍 ${f.location_name} · 🕐 ${f.created_at}
+          </div>
+          <div class="finding-badges">
+            <span class="badge status-${f.status}">${f.status.replace(/_/g, ' ')}</span>
+            ${f.exception_class ? `<span class="badge exception">${f.exception_class.replace(/_/g, ' ')}</span>` : ''}
+            ${f.is_repeat ? `<span class="badge repeat">🔁 Repeat x${(f.repeat_count || 0) + 1}</span>` : ''}
+          </div>
+          <div class="detail-row"><span class="lbl">Value:</span><strong>${f.reported_value || '—'}</strong></div>
+          <div class="detail-row"><span class="lbl">Normal Range:</span>${f.normal_range || '—'}</div>
+          <div class="detail-row"><span class="lbl">Reported By:</span>${f.reported_by_name || f.reported_by || '—'}</div>
+          ${f.corrective_action ? `<div class="detail-row"><span class="lbl">Action:</span>${f.corrective_action}</div>` : ''}
+          ${f.root_cause ? `<div class="detail-row"><span class="lbl">Root Cause:</span>${f.root_cause}</div>` : ''}
+          <div class="action-btns">
+            ${f.status === 'open' ? `<button class="btn-ack" onclick="updateFinding('${f.id}','acknowledged')">👁 Acknowledge</button>` : ''}
+            ${['open','acknowledged'].includes(f.status) ? `<button class="btn-progress" onclick="updateFinding('${f.id}','in_progress')">🔧 Start</button>` : ''}
+            ${['in_progress','acknowledged'].includes(f.status) ? `<button class="btn-resolve" onclick="resolveFinding('${f.id}')">✅ Resolve</button>` : ''}
+            ${f.status === 'resolved' ? `<button class="btn-close" onclick="updateFinding('${f.id}','closed')">🔒 Close</button>` : ''}
+            ${!['closed','deferred'].includes(f.status) ? `<button class="btn-defer" onclick="updateFinding('${f.id}','deferred')">⏸ Defer</button>` : ''}
+          </div>
+        </div>`;
+    }
+
+    function renderRepeats() {
+      const container = document.getElementById('repeatsView');
+      if (repeats.length === 0) {
+        container.innerHTML = '<div class="empty-state">No repeated abnormalities detected</div>';
+        return;
+      }
+      container.innerHTML = `
+        <table class="repeat-table">
+          <thead><tr>
+            <th>Equipment</th><th>Location</th><th>Field</th><th>Occurrences</th><th>Still Open</th><th>Severity</th><th>First</th><th>Last</th>
+          </tr></thead>
+          <tbody>${repeats.map(r => `
+            <tr>
+              <td><strong>${r.equipment_name}</strong></td>
+              <td>${r.location_name}</td>
+              <td>${r.field_name}</td>
+              <td><strong style="color:${r.occurrence_count >= 5 ? '#ef4444' : r.occurrence_count >= 3 ? '#f59e0b' : '#2563eb'}">${r.occurrence_count}</strong></td>
+              <td>${r.still_open || 0}</td>
+              <td><span class="badge severity-${r.severity}">${r.severity}</span></td>
+              <td style="font-size:12px;">${r.first_occurrence || '—'}</td>
+              <td style="font-size:12px;">${r.last_occurrence || '—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    async function updateFinding(id, status) {
+      try {
+        await fetch(`/api/maintenance/findings/${id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        loadAll();
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async function resolveFinding(id) {
+      const corrective = prompt('Corrective action taken:');
+      const rootCause = prompt('Root cause (optional):');
+      try {
+        await fetch(`/api/maintenance/findings/${id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'resolved', corrective_action: corrective, root_cause: rootCause })
+        });
+        loadAll();
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function switchView(view, el) {
+      currentView = view;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      if (el) el.classList.add('active');
+      ['findingsView','repeatsView','classView','allView'].forEach(id => document.getElementById(id).style.display = 'none');
+      const viewMap = { findings: 'findingsView', repeats: 'repeatsView', classification: 'classView', all: 'allView' };
+      document.getElementById(viewMap[view]).style.display = 'block';
+      if (view === 'all') loadFindings();
+      if (view === 'classification') renderClassification();
+    }
+
+    function renderClassification() {
+      const container = document.getElementById('classView');
+      const byClass = stats.by_exception_class || [];
+      const byEquip = stats.by_equipment || [];
+
+      container.innerHTML = `
+        <div class="section-title">Exception Classification Summary</div>
+        <div class="class-grid">
+          ${byClass.map(c => `
+            <div class="class-card">
+              <div class="count">${c.cnt}</div>
+              <div class="name">${(c.exception_class || 'unclassified').replace(/_/g, ' ')}</div>
+            </div>
+          `).join('') || '<div class="class-card"><div class="count">0</div><div class="name">No classifications yet</div></div>'}
+        </div>
+        <div class="section-title">Top Equipment by Open Findings</div>
+        <table class="repeat-table">
+          <thead><tr><th>Equipment</th><th>Open Findings</th><th>Critical</th></tr></thead>
+          <tbody>${byEquip.map(e => `
+            <tr>
+              <td><strong>${e.equipment_name}</strong></td>
+              <td>${e.cnt}</td>
+              <td style="color:${e.critical_cnt > 0 ? '#ef4444' : '#22c55e'}">${e.critical_cnt}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center;">No data</td></tr>'}
+          </tbody>
+        </table>`;
+    }
+
+    loadAll();
+    setInterval(loadAll, 60000);
+  </script>
+</body>
+</html>

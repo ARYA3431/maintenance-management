@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedules - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" title="Toggle navigation menu">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link active" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exceptions">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulters">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse electrical store inventory">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Follow-up and compliance tracking">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View detailed maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notifications">🔔 Alerts</a>
+      <a href="#" id="logoutBtn" class="nav-link" title="Sign out of your account">🚪 Logout</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Compliance Stats -->
+    <div class="stats-row">
+      <div class="stat-card" title="Total number of scheduled maintenance tasks">
+        <div class="stat-icon">📅</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statTotal">0</span>
+          <span class="stat-label">Total Scheduled</span>
+        </div>
+      </div>
+      <div class="stat-card" style="border-left:4px solid var(--success);" title="Tasks completed on time">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statCompleted">0</span>
+          <span class="stat-label">Completed</span>
+        </div>
+      </div>
+      <div class="stat-card stat-warning" title="Tasks due today">
+        <div class="stat-icon">📋</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statDueToday">0</span>
+          <span class="stat-label">Due Today</span>
+        </div>
+      </div>
+      <div class="stat-card stat-danger" title="Tasks past their due date">
+        <div class="stat-icon">⚠️</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statOverdue">0</span>
+          <span class="stat-label">Overdue</span>
+        </div>
+      </div>
+      <div class="stat-card" title="Percentage of tasks completed on time">
+        <div class="stat-icon">📈</div>
+        <div class="stat-info">
+          <span class="stat-number" id="statCompliance">0%</span>
+          <span class="stat-label">Compliance Rate</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="schedules" onclick="switchTab('schedules')" title="View all maintenance schedules">📅 Schedules</button>
+      <button class="tab-btn" data-tab="calendar" onclick="switchTab('calendar')" title="Visual calendar view of scheduled tasks">🗓️ Calendar</button>
+      <button class="tab-btn" data-tab="compliance" onclick="switchTab('compliance')" title="Equipment and engineer compliance rates">📈 Compliance</button>
+    </div>
+
+    <!-- Tab: Schedules -->
+    <div id="tab-schedules" class="tab-content">
+      <div class="page-header">
+        <h2>📅 Maintenance Schedules</h2>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="processSchedules()" title="Manually trigger schedule processing to generate pending instances">🔄 Process Now</button>
+          <button class="btn btn-primary" onclick="openCreateModal()" title="Create a new recurring maintenance schedule">➕ Create Schedule</button>
+        </div>
+      </div>
+      <div id="schedulesList"></div>
+    </div>
+
+    <!-- Tab: Calendar -->
+    <div id="tab-calendar" class="tab-content" style="display:none;">
+      <div class="page-header">
+        <h2>🗓️ Schedule Calendar</h2>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)" title="Go to previous month">◀</button>
+          <span id="calendarMonth" style="font-weight:700;font-size:1.1rem;min-width:150px;text-align:center;" title="Currently displayed month"></span>
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)" title="Go to next month">▶</button>
+        </div>
+      </div>
+      <div id="calendarGrid" class="calendar-grid"></div>
+      <div class="calendar-legend">
+        <span class="legend-item" title="Tasks completed on time"><span class="legend-dot legend-completed"></span> Completed</span>
+        <span class="legend-item" title="Tasks waiting to be completed"><span class="legend-dot legend-pending"></span> Pending</span>
+        <span class="legend-item" title="Tasks past their due date"><span class="legend-dot legend-overdue"></span> Overdue</span>
+        <span class="legend-item" title="Tasks that were never completed"><span class="legend-dot legend-missed"></span> Missed</span>
+      </div>
+    </div>
+
+    <!-- Tab: Compliance -->
+    <div id="tab-compliance" class="tab-content" style="display:none;">
+      <div class="page-header">
+        <h2>📈 Compliance Dashboard</h2>
+      </div>
+
+      <h3 style="margin-bottom:0.75rem;">Equipment Compliance</h3>
+      <div id="equipmentComplianceTable"></div>
+
+      <h3 style="margin:1.5rem 0 0.75rem;">Engineer Performance</h3>
+      <div id="engineerComplianceTable"></div>
+    </div>
+
+    <!-- Create Schedule Modal -->
+    <div id="createModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeCreateModal()"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>➕ Create Maintenance Schedule</h2>
+          <button class="modal-close" onclick="closeCreateModal()" title="Close this dialog">&times;</button>
+        </div>
+        <form id="scheduleForm" onsubmit="return createSchedule(event)">
+          <div class="form-group">
+            <label>Equipment *</label>
+            <select id="scEquipment" required title="Select the equipment to schedule"></select>
+          </div>
+          <div class="form-group">
+            <label>Task Type *</label>
+            <select id="scTaskType" required title="Choose inspection (routine check) or maintenance (repair/service)">
+              <option value="inspection">🔍 Inspection — Routine checklist</option>
+              <option value="maintenance">🔧 Maintenance — Repair / Service work</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Frequency *</label>
+              <select id="scFrequency" required title="How often this task recurs">
+                <option value="daily">Daily</option>
+                <option value="weekly" selected>Weekly</option>
+                <option value="biweekly">Biweekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Start Date *</label>
+              <input type="date" id="scStartDate" required title="When the schedule begins">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>End Date <span class="hint">(leave empty for ongoing)</span></label>
+              <input type="date" id="scEndDate" title="When the schedule ends (leave empty for ongoing)">
+            </div>
+            <div class="form-group">
+              <label>Grace Period (hours)</label>
+              <input type="number" id="scGrace" value="24" min="1" max="168" title="Hours after due date before marking overdue">
+            </div>
+          </div>
+          <hr>
+          <h3 style="margin-bottom:0.5rem;">Assignment</h3>
+          <p class="hint" style="margin-bottom:1rem;">Assign to a specific employee OR a department (anyone in that department can complete it).</p>
+          <div class="form-row">
+            <div class="form-group" style="position:relative;">
+              <label>Assign to Employee</label>
+              <input type="text" id="scEmployeeSearch" placeholder="🔍 Search by name or ID..." autocomplete="off" title="Type to search employees by name or ID" style="width:100%;padding:10px 14px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;box-sizing:border-box;">
+              <input type="hidden" id="scEmployee">
+              <div id="empDropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:white;border:2px solid #2563eb;border-radius:10px;max-height:220px;overflow-y:auto;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.15);margin-top:2px;"></div>
+              <div id="empSelected" style="font-size:12px;color:#16a34a;margin-top:4px;display:none;"></div>
+            </div>
+            <div class="form-group">
+              <label>Or Assign to Department</label>
+              <select id="scDepartment" title="Assign to anyone in this department">
+                <option value="">— No department —</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCreateModal()" title="Discard and close">Cancel</button>
+            <button type="submit" class="btn btn-primary" title="Save the new maintenance schedule">💾 Create Schedule</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Instances Modal -->
+    <div id="instancesModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeInstancesModal()"></div>
+      <div class="modal-content modal-lg">
+        <div class="modal-header">
+          <h2>📋 Schedule Instances</h2>
+          <button class="modal-close" onclick="closeInstancesModal()" title="Close schedule instances">&times;</button>
+        </div>
+        <div id="instancesContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/schedules.js"></script>
+</body>
+</html>

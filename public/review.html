@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review Queue - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .review-container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .review-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .review-tab { padding: 10px 20px; border: 2px solid #e2e8f0; border-radius: 20px; cursor: pointer; font-weight: 600; background: white; transition: all 0.2s; }
+    .review-tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+    .review-tab .badge { display: inline-block; background: #ef4444; color: white; border-radius: 50%; min-width: 22px; height: 22px; line-height: 22px; text-align: center; font-size: 12px; margin-left: 6px; }
+    .review-card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #e2e8f0; }
+    .review-card.critical { border-left-color: #ef4444; }
+    .review-card.warning { border-left-color: #f59e0b; }
+    .review-card.emergency { border-left-color: #dc2626; background: #fef2f2; }
+    .review-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .review-card-title { font-weight: 700; font-size: 16px; }
+    .review-card-meta { color: #64748b; font-size: 13px; margin-bottom: 8px; }
+    .review-card-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .severity-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .severity-badge.normal { background: #dbeafe; color: #1e40af; }
+    .severity-badge.warning { background: #fef3c7; color: #92400e; }
+    .severity-badge.critical { background: #fee2e2; color: #991b1b; }
+    .severity-badge.emergency { background: #dc2626; color: white; }
+    .exception-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #f1f5f9; color: #475569; }
+    .review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .review-btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.2s; }
+    .review-btn.approve { background: #22c55e; color: white; }
+    .review-btn.reject { background: #ef4444; color: white; }
+    .review-btn.escalate { background: #f59e0b; color: white; }
+    .review-btn.defer { background: #94a3b8; color: white; }
+    .review-btn:hover { transform: translateY(-1px); opacity: 0.9; }
+    .batch-bar { position: sticky; top: 0; z-index: 100; background: #1e293b; color: white; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; display: none; align-items: center; gap: 12px; }
+    .batch-bar.active { display: flex; }
+    .batch-count { font-weight: 700; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: white; border-radius: 12px; padding: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .stat-card .number { font-size: 28px; font-weight: 800; }
+    .stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .stat-card.danger .number { color: #ef4444; }
+    .stat-card.warning .number { color: #f59e0b; }
+    .stat-card.success .number { color: #22c55e; }
+    .finding-detail { background: #f8fafc; border-radius: 8px; padding: 12px; margin-top: 8px; font-size: 13px; }
+    .finding-detail .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .finding-detail .label { color: #64748b; }
+    .repeat-indicator { display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .action-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .action-modal.open { display: flex; }
+    .action-modal-content { background: white; border-radius: 16px; padding: 24px; max-width: 480px; width: 90%; max-height: 80vh; overflow-y: auto; }
+    .action-modal h3 { margin-bottom: 16px; }
+    .action-modal textarea { width: 100%; border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; font-size: 14px; min-height: 80px; resize: vertical; }
+    .action-modal select { width: 100%; border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; font-size: 14px; margin-bottom: 12px; }
+    .action-modal label { display: block; font-weight: 600; margin-bottom: 6px; color: #334155; }
+    .action-modal .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+    .timeline { margin-top: 16px; }
+    .timeline-item { display: flex; gap: 12px; padding: 8px 0; border-left: 2px solid #e2e8f0; margin-left: 8px; padding-left: 16px; }
+    .timeline-item .time { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .timeline-item .action { font-size: 13px; }
+    .checkbox-select { width: 20px; height: 20px; cursor: pointer; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" title="Toggle navigation menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link active" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exception classes">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends over time">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulter reports">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse store inventory and locations">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Track follow-up tasks and compliance">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View and export maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notification history">🔔 Alerts</a>
+      <a href="/admin.html" class="nav-link" title="Go back to admin dashboard">← Back</a>
+    </div>
+  </nav>
+
+  <div class="review-container">
+    <h1 style="margin:0 0 20px;">🔍 Review Queue</h1>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="reviewStats"></div>
+
+    <!-- Tabs -->
+    <div class="review-tabs">
+      <div class="review-tab active" data-tab="records" onclick="switchTab('records')" title="View maintenance reports waiting for your review">
+        📋 Pending Reports <span class="badge" id="recordsBadge">0</span>
+      </div>
+      <div class="review-tab" data-tab="findings" onclick="switchTab('findings')" title="View open abnormality findings that need action">
+        ⚠️ Open Findings <span class="badge" id="findingsBadge">0</span>
+      </div>
+      <div class="review-tab" data-tab="history" onclick="switchTab('history')" title="View recently completed review actions">
+        📜 Recent Actions
+      </div>
+    </div>
+
+    <!-- Batch action bar -->
+    <div class="batch-bar" id="batchBar">
+      <span class="batch-count" id="batchCount">0 selected</span>
+      <button class="review-btn approve" onclick="batchAction('reviewed')" title="Approve all selected reports at once">✓ Approve All</button>
+      <button class="review-btn reject" onclick="batchAction('resolved')" title="Mark all selected items as resolved">✓ Resolve All</button>
+      <button class="review-btn defer" onclick="clearSelection()" title="Deselect all checked items">✕ Clear</button>
+    </div>
+
+    <!-- Content -->
+    <div id="recordsList"></div>
+    <div id="findingsList" style="display:none;"></div>
+    <div id="historyList" style="display:none;"></div>
+  </div>
+
+  <!-- Action Modal -->
+  <div class="action-modal" id="actionModal">
+    <div class="action-modal-content">
+      <h3 id="modalTitle">Review Action</h3>
+      <input type="hidden" id="modalTargetId">
+      <input type="hidden" id="modalTargetType">
+
+      <div id="findingFields" style="display:none;">
+        <label>Exception Classification</label>
+        <select id="modalExceptionClass" title="Classify the type of abnormality found">
+          <option value="">— Select —</option>
+          <option value="abnormal_but_running">Abnormal but Running</option>
+          <option value="watchlist">Watchlist</option>
+          <option value="urgent_maintenance">Urgent Maintenance</option>
+          <option value="immediate_shutdown">Immediate Shutdown</option>
+        </select>
+
+        <label>Corrective Action</label>
+        <textarea id="modalCorrectiveAction" placeholder="Describe corrective action taken..." title="Enter the corrective action taken to address this finding"></textarea>
+
+        <label style="margin-top:12px;">Root Cause</label>
+        <textarea id="modalRootCause" placeholder="Root cause analysis..." style="min-height:60px;" title="Describe the root cause of this abnormality"></textarea>
+      </div>
+
+      <label style="margin-top:12px;">Review Notes</label>
+      <textarea id="modalNotes" placeholder="Add review notes..." title="Add optional notes about your review decision"></textarea>
+
+      <div class="btn-row">
+        <button class="review-btn approve" id="modalApproveBtn" onclick="submitModalAction('approve')" title="Approve this report or finding">✓ Approve</button>
+        <button class="review-btn escalate" id="modalEscalateBtn" onclick="submitModalAction('escalate')" title="Escalate to higher authority for urgent attention">⬆ Escalate</button>
+        <button class="review-btn defer" id="modalDeferBtn" onclick="submitModalAction('defer')" title="Defer this item to be reviewed later">⏸ Defer</button>
+        <button class="review-btn reject" id="modalRejectBtn" onclick="submitModalAction('reject')" title="Reject this report or finding">✕ Reject</button>
+        <button class="review-btn" style="background:#e2e8f0;color:#334155;" onclick="closeModal()" title="Close this dialog without taking action">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let reviewData = { pending_records: [], open_findings: [], recent_actions: [] };
+    let selectedRecords = new Set();
+
+    async function loadReviewQueue() {
+      try {
+        const res = await fetch('/api/maintenance/review-queue');
+        if (!res.ok) throw new Error('Failed to load');
+        reviewData = await res.json();
+        renderStats();
+        renderRecords();
+        renderFindings();
+        renderHistory();
+        document.getElementById('recordsBadge').textContent = reviewData.pending_records.length;
+        document.getElementById('findingsBadge').textContent = reviewData.open_findings.length;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderStats() {
+      const pr = reviewData.pending_records;
+      const of_ = reviewData.open_findings;
+      const critRecords = pr.filter(r => r.has_critical_abnormality).length;
+      const critFindings = of_.filter(f => f.severity === 'critical' || f.severity === 'emergency').length;
+      const repeats = of_.filter(f => f.is_repeat).length;
+
+      document.getElementById('reviewStats').innerHTML = `
+        <div class="stat-card danger"><div class="number">${pr.length}</div><div class="label">Pending Reports</div></div>
+        <div class="stat-card warning"><div class="number">${of_.length}</div><div class="label">Open Findings</div></div>
+        <div class="stat-card danger"><div class="number">${critRecords + critFindings}</div><div class="label">Critical Items</div></div>
+        <div class="stat-card warning"><div class="number">${repeats}</div><div class="label">Repeat Issues</div></div>
+      `;
+    }
+
+    function renderRecords() {
+      const container = document.getElementById('recordsList');
+      if (reviewData.pending_records.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><div>No pending reports to review</div></div>';
+        return;
+      }
+      container.innerHTML = reviewData.pending_records.map(r => `
+        <div class="review-card ${r.has_critical_abnormality ? 'critical' : r.has_abnormality ? 'warning' : ''}">
+          <div class="review-card-header">
+            <div>
+              <input type="checkbox" class="checkbox-select" data-id="${r.id}" onchange="toggleSelect('${r.id}')">
+              <span class="review-card-title">${r.equipment_name || 'Equipment'}</span>
+            </div>
+            <span class="severity-badge ${r.severity || 'normal'}">${r.severity || 'normal'}</span>
+          </div>
+          <div class="review-card-meta">
+            📍 ${r.location_name || ''} · 👤 ${r.employee_name || r.employee_id} · 🕐 ${r.submitted_at}
+          </div>
+          <div class="review-card-badges">
+            ${r.has_critical_abnormality ? '<span class="severity-badge critical">CRITICAL ABNORMALITY</span>' : ''}
+            ${r.has_abnormality ? '<span class="severity-badge warning">ABNORMALITY</span>' : ''}
+            <span class="exception-badge">${r.task_type || 'inspection'}</span>
+            <span class="exception-badge">${r.verification_status || 'unverified'}</span>
+          </div>
+          ${r.notes ? `<div style="font-size:13px;color:#475569;margin-bottom:8px;">📝 ${r.notes}</div>` : ''}
+          <div class="review-actions">
+            <button class="review-btn approve" onclick="openRecordAction('${r.id}', 'reviewed')">✓ Approve</button>
+            <button class="review-btn escalate" onclick="openRecordAction('${r.id}', 'in_progress')">🔄 In Progress</button>
+            <button class="review-btn" style="background:#6366f1;color:white;" onclick="viewReport('${r.id}')">👁 View Details</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderFindings() {
+      const container = document.getElementById('findingsList');
+      if (reviewData.open_findings.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><div>No open findings</div></div>';
+        return;
+      }
+      container.innerHTML = reviewData.open_findings.map(f => `
+        <div class="review-card ${f.severity}">
+          <div class="review-card-header">
+            <span class="review-card-title">${f.field_name || 'Finding'}</span>
+            <span class="severity-badge ${f.severity}">${f.severity}</span>
+          </div>
+          <div class="review-card-meta">
+            🏭 ${f.equipment_name} · 📍 ${f.location_name} · 🕐 ${f.created_at}
+          </div>
+          <div class="review-card-badges">
+            ${f.exception_class ? `<span class="exception-badge">${f.exception_class.replace(/_/g, ' ')}</span>` : ''}
+            ${f.is_repeat ? `<span class="repeat-indicator">🔁 Repeat x${f.repeat_count + 1}</span>` : ''}
+          </div>
+          <div class="finding-detail">
+            <div class="row"><span class="label">Reported Value:</span><span><strong>${f.reported_value || '—'}</strong></span></div>
+            <div class="row"><span class="label">Normal Range:</span><span>${f.normal_range || '—'}</span></div>
+            <div class="row"><span class="label">Reported By:</span><span>${f.reported_by_name || f.reported_by || '—'}</span></div>
+          </div>
+          <div class="review-actions">
+            <button class="review-btn approve" onclick="openFindingAction('${f.id}', 'acknowledged')">👁 Acknowledge</button>
+            <button class="review-btn escalate" onclick="openFindingAction('${f.id}', 'in_progress')">🔧 Start Work</button>
+            <button class="review-btn" style="background:#22c55e;color:white;" onclick="openFindingAction('${f.id}', 'resolved')">✓ Resolve</button>
+            <button class="review-btn defer" onclick="openFindingAction('${f.id}', 'deferred')">⏸ Defer</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderHistory() {
+      const container = document.getElementById('historyList');
+      if (reviewData.recent_actions.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📜</div><div>No recent actions</div></div>';
+        return;
+      }
+      container.innerHTML = '<div class="timeline">' + reviewData.recent_actions.map(a => `
+        <div class="timeline-item">
+          <span class="time">${a.created_at}</span>
+          <span class="action">
+            <strong>${a.action_by_name || 'Admin'}</strong>
+            ${a.action_type === 'approve' ? '✅ approved' : a.action_type === 'reject' ? '❌ rejected' : a.action_type === 'escalate' ? '⬆️ escalated' : a.action_type === 'close' ? '🔒 closed' : a.action_type === 'reopen' ? '🔄 reopened' : a.action_type}
+            ${a.record_id ? `record` : a.finding_id ? `finding` : 'item'}
+            ${a.notes ? `— "${a.notes}"` : ''}
+          </span>
+        </div>
+      `).join('') + '</div>';
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.review-tab').forEach(t => t.classList.remove('active'));
+      const activeTab = document.querySelector('[data-tab="' + tab + '"]');
+      if (activeTab) activeTab.classList.add('active');
+      document.getElementById('recordsList').style.display = tab === 'records' ? 'block' : 'none';
+      document.getElementById('findingsList').style.display = tab === 'findings' ? 'block' : 'none';
+      document.getElementById('historyList').style.display = tab === 'history' ? 'block' : 'none';
+    }
+
+    function toggleSelect(id) {
+      if (selectedRecords.has(id)) selectedRecords.delete(id);
+      else selectedRecords.add(id);
+      const bar = document.getElementById('batchBar');
+      bar.classList.toggle('active', selectedRecords.size > 0);
+      document.getElementById('batchCount').textContent = `${selectedRecords.size} selected`;
+    }
+
+    function clearSelection() {
+      selectedRecords.clear();
+      document.querySelectorAll('.checkbox-select').forEach(cb => cb.checked = false);
+      document.getElementById('batchBar').classList.remove('active');
+    }
+
+    async function batchAction(action) {
+      if (selectedRecords.size === 0) return;
+      const notes = prompt('Add review notes (optional):');
+      try {
+        const res = await fetch('/api/maintenance/review-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ record_ids: [...selectedRecords], action, notes })
+        });
+        if (res.ok) {
+          clearSelection();
+          loadReviewQueue();
+        }
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function openRecordAction(id, action) {
+      document.getElementById('modalTargetId').value = id;
+      document.getElementById('modalTargetType').value = 'record';
+      document.getElementById('modalTitle').textContent = 'Review Report';
+      document.getElementById('findingFields').style.display = 'none';
+      document.getElementById('actionModal').classList.add('open');
+    }
+
+    function openFindingAction(id, prefillStatus) {
+      document.getElementById('modalTargetId').value = id;
+      document.getElementById('modalTargetType').value = 'finding';
+      document.getElementById('modalTitle').textContent = 'Update Finding';
+      document.getElementById('findingFields').style.display = 'block';
+      document.getElementById('actionModal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('actionModal').classList.remove('open');
+    }
+
+    async function submitModalAction(action) {
+      const id = document.getElementById('modalTargetId').value;
+      const type = document.getElementById('modalTargetType').value;
+      const notes = document.getElementById('modalNotes').value;
+
+      if (type === 'record') {
+        const statusMap = { approve: 'reviewed', reject: 'reopened', escalate: 'in_progress', defer: 'pending' };
+        const status = statusMap[action] || 'reviewed';
+        await fetch(`/api/maintenance/records/${id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, review_notes: notes })
+        });
+      } else if (type === 'finding') {
+        const statusMap = { approve: 'resolved', reject: 'open', escalate: 'in_progress', defer: 'deferred' };
+        const status = statusMap[action] || 'acknowledged';
+        const body = {
+          status, notes,
+          exception_class: document.getElementById('modalExceptionClass').value || undefined,
+          corrective_action: document.getElementById('modalCorrectiveAction').value || undefined,
+          root_cause: document.getElementById('modalRootCause').value || undefined
+        };
+        await fetch(`/api/maintenance/findings/${id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      }
+      closeModal();
+      loadReviewQueue();
+    }
+
+    function viewReport(id) {
+      window.open(`/dashboard.html?report=${id}`, '_blank');
+    }
+
+    // Init
+    loadReviewQueue();
+    setInterval(loadReviewQueue, 30000);
+  </script>
+</body>
+</html>

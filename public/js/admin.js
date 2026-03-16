@@ -46,8 +46,18 @@ loadAlertBadge();
 setInterval(loadAlertBadge, 30000);
 
 // ===== Equipment List =====
+let showingArchived = false;
+
+function toggleArchived() {
+  showingArchived = !showingArchived;
+  const btn = document.getElementById('toggleArchivedBtn');
+  btn.innerHTML = showingArchived ? '⚙️ Show Active' : '📦 Show Archived';
+  btn.style.background = showingArchived ? 'var(--warning-light)' : 'var(--gray-200)';
+  loadEquipment();
+}
+
 async function loadEquipment() {
-  const res = await fetch('/api/equipment');
+  const res = await fetch('/api/equipment' + (showingArchived ? '?archived=1' : ''));
   const equipment = await res.json();
   const container = document.getElementById('equipmentList');
 
@@ -58,15 +68,18 @@ async function loadEquipment() {
   }
 
   if (!equipment.length) {
-    container.innerHTML = '<div class="card text-center no-data"><p>📦 No equipment registered yet. Click "Add Equipment" to get started.</p></div>';
+    container.innerHTML = showingArchived
+      ? '<div class="card text-center no-data"><p>📦 No archived equipment.</p></div>'
+      : '<div class="card text-center no-data"><p>📦 No equipment registered yet. Click "Add Equipment" to get started.</p></div>';
     return;
   }
 
   container.innerHTML = equipment.map(eq => `
-    <div class="card equipment-card ${eq.is_critical ? 'equipment-critical' : ''}">
+    <div class="card equipment-card ${eq.is_critical ? 'equipment-critical' : ''} ${showingArchived ? 'equipment-archived' : ''}">
       <div class="eq-card-header">
         <h3>⚙️ ${escapeHtml(eq.name)}</h3>
         ${eq.is_critical ? '<span class="tag tag-abnormal">🔴 CRITICAL</span>' : '<span class="tag tag-normal">✅ Standard</span>'}
+        ${showingArchived ? '<span class="tag" style="background:#fee2e2;color:#991b1b;">📦 Archived</span>' : ''}
       </div>
       <p class="subtitle">📍 ${escapeHtml(eq.location_name)}</p>
       <p class="hint">${escapeHtml(eq.description || 'No description')}</p>
@@ -74,16 +87,31 @@ async function loadEquipment() {
         <span>🎯 GPS: ${eq.latitude.toFixed(4)}, ${eq.longitude.toFixed(4)}</span>
         <span>📏 Radius: ${eq.radius_meters}m</span>
       </div>
-      <div class="card-actions">
-        <button class="btn btn-primary btn-sm" onclick="showQR('${eq.id}')">
-          📱 QR Code
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="showHistory('${eq.id}')">
-          📜 History
-        </button>
-        <button class="btn btn-danger btn-sm" onclick="deleteEquipment('${eq.id}', '${escapeHtml(eq.name)}')">
-          🗑️ Delete
-        </button>
+      <div class="card-actions" style="flex-wrap:wrap;">
+        ${showingArchived ? `
+          <button class="btn btn-primary btn-sm" onclick="archiveEquipment('${eq.id}')">
+            ♻️ Restore
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="deleteEquipment('${eq.id}', '${escapeHtml(eq.name)}')">
+            🗑️ Delete
+          </button>
+        ` : `
+          <button class="btn btn-primary btn-sm" onclick="showQR('${eq.id}')">
+            📱 QR Code
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="editEquipment('${eq.id}')">
+            ✏️ Edit
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="duplicateEquipment('${eq.id}', '${escapeHtml(eq.name)}')">
+            📋 Duplicate
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="showHistory('${eq.id}')">
+            📜 History
+          </button>
+          <button class="btn btn-sm" style="background:var(--warning-light);color:var(--warning);" onclick="archiveEquipment('${eq.id}')">
+            📦 Archive
+          </button>
+        `}
       </div>
     </div>
   `).join('');
@@ -180,9 +208,212 @@ function closeHistoryModal() {
   document.getElementById('historyModal').style.display = 'none';
 }
 
+// ===== Edit Equipment =====
+let editFieldCounter = 0;
+
+async function editEquipment(id) {
+  const res = await fetch(`/api/equipment/${encodeURIComponent(id)}`);
+  if (!res.ok) return alert('Failed to load equipment');
+  const eq = await res.json();
+
+  document.getElementById('editEqId').value = eq.id;
+  document.getElementById('editEqName').value = eq.name;
+  document.getElementById('editEqLocation').value = eq.location_name;
+  document.getElementById('editEqDescription').value = eq.description || '';
+  document.getElementById('editEqLat').value = eq.latitude;
+  document.getElementById('editEqLng').value = eq.longitude;
+  document.getElementById('editEqRadius').value = eq.radius_meters;
+  document.getElementById('editEqCritical').checked = !!eq.is_critical;
+
+  // Populate fields
+  const container = document.getElementById('editFieldsContainer');
+  container.innerHTML = '';
+  editFieldCounter = 0;
+
+  if (eq.fields && eq.fields.length) {
+    eq.fields.forEach(f => addEditField(f));
+  }
+
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+function addEditField(data) {
+  editFieldCounter++;
+  const id = editFieldCounter;
+  const container = document.getElementById('editFieldsContainer');
+  const div = document.createElement('div');
+  div.className = 'field-row';
+  div.id = `edit-field-${id}`;
+
+  const fieldName = data ? data.field_name : '';
+  const fieldType = data ? data.field_type : 'number';
+  const minVal = data && data.min_value != null ? data.min_value : '';
+  const maxVal = data && data.max_value != null ? data.max_value : '';
+  const optionsVal = data && data.options ? data.options : '';
+  const isRequired = !data || data.is_required;
+  const isCritical = data && data.is_critical;
+
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+      <span class="hint" style="font-size:0.8rem;color:var(--gray-500);">Field #${id}</span>
+      <button type="button" class="btn btn-danger btn-sm" style="padding:0.2rem 0.6rem;font-size:0.85rem;" title="Remove this field">🗑️ Remove</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Field Name</label>
+        <input type="text" class="field-name" required placeholder="e.g., Temperature">
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select class="field-type" onchange="toggleEditFieldOptions(${id})">
+          <option value="number" ${fieldType === 'number' ? 'selected' : ''}>Number</option>
+          <option value="text" ${fieldType === 'text' ? 'selected' : ''}>Text</option>
+          <option value="select" ${fieldType === 'select' ? 'selected' : ''}>Dropdown</option>
+          <option value="checkbox" ${fieldType === 'checkbox' ? 'selected' : ''}>Checkbox</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row field-options" id="edit-field-options-${id}" style="display:${fieldType === 'number' ? 'grid' : 'none'};">
+      <div class="form-group">
+        <label>Min Value</label>
+        <input type="number" class="field-min" step="any" placeholder="e.g., 20">
+      </div>
+      <div class="form-group">
+        <label>Max Value</label>
+        <input type="number" class="field-max" step="any" placeholder="e.g., 80">
+      </div>
+    </div>
+    <div class="form-group field-select-options" id="edit-field-select-${id}" style="display:${fieldType === 'select' ? 'block' : 'none'};">
+      <label>Options (comma-separated)</label>
+      <input type="text" class="field-options-list" placeholder="e.g., Normal, Abnormal">
+    </div>
+    <label class="checkbox-label">
+      <input type="checkbox" class="field-required" ${isRequired ? 'checked' : ''}> Required
+    </label>
+    <label class="checkbox-label" style="margin-top:0.5rem;color:var(--danger);">
+      <input type="checkbox" class="field-critical" ${isCritical ? 'checked' : ''}> 🔴 Critical
+    </label>
+  `;
+
+  // Set values safely via DOM (avoids HTML attribute escaping issues)
+  div.querySelector('.field-name').value = fieldName;
+  if (minVal !== '') div.querySelector('.field-min').value = minVal;
+  if (maxVal !== '') div.querySelector('.field-max').value = maxVal;
+  const optInput = div.querySelector('.field-options-list');
+  if (optInput && optionsVal) optInput.value = optionsVal;
+
+  // Remove button via event listener (more reliable than inline onclick)
+  div.querySelector('.btn-danger').addEventListener('click', () => { div.remove(); updateEditFieldCount(); });
+
+  container.appendChild(div);
+  updateEditFieldCount();
+}
+
+function updateEditFieldCount() {
+  const count = document.querySelectorAll('#editFieldsContainer .field-row').length;
+  const el = document.getElementById('editFieldCount');
+  if (el) el.textContent = `(${count} fields)`;
+}
+
+function toggleEditFieldOptions(id) {
+  const row = document.getElementById(`edit-field-${id}`);
+  const type = row.querySelector('.field-type').value;
+  document.getElementById(`edit-field-options-${id}`).style.display = type === 'number' ? 'grid' : 'none';
+  document.getElementById(`edit-field-select-${id}`).style.display = type === 'select' ? 'block' : 'none';
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
+}
+
+document.getElementById('editEquipmentForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('editEqId').value;
+
+  const fields = [];
+  document.querySelectorAll('#editFieldsContainer .field-row').forEach(row => {
+    const name = row.querySelector('.field-name').value.trim();
+    const type = row.querySelector('.field-type').value;
+    const min = row.querySelector('.field-min')?.value;
+    const max = row.querySelector('.field-max')?.value;
+    const options = row.querySelector('.field-options-list')?.value.trim();
+    const required = row.querySelector('.field-required').checked;
+    const critical = row.querySelector('.field-critical').checked;
+    if (name) {
+      fields.push({
+        field_name: name, field_type: type,
+        min_value: min ? parseFloat(min) : null,
+        max_value: max ? parseFloat(max) : null,
+        options: options || null,
+        is_required: required, is_critical: critical
+      });
+    }
+  });
+
+  const body = {
+    name: document.getElementById('editEqName').value.trim(),
+    description: document.getElementById('editEqDescription').value.trim(),
+    location_name: document.getElementById('editEqLocation').value.trim(),
+    latitude: parseFloat(document.getElementById('editEqLat').value),
+    longitude: parseFloat(document.getElementById('editEqLng').value),
+    radius_meters: parseInt(document.getElementById('editEqRadius').value) || 100,
+    is_critical: document.getElementById('editEqCritical').checked,
+    fields
+  };
+
+  const res = await fetch(`/api/equipment/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (res.ok) {
+    closeEditModal();
+    loadEquipment();
+  } else {
+    const err = await res.json();
+    alert(err.error || 'Failed to update equipment');
+  }
+});
+
+document.getElementById('editUseMyLocationBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) return alert('Geolocation not supported');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById('editEqLat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('editEqLng').value = pos.coords.longitude.toFixed(6);
+    },
+    err => alert('Could not get location: ' + err.message),
+    { enableHighAccuracy: true }
+  );
+});
+
+// ===== Duplicate Equipment =====
+async function duplicateEquipment(id, name) {
+  if (!confirm(`Duplicate "${name}" with all its check fields?`)) return;
+  const res = await fetch(`/api/equipment/${encodeURIComponent(id)}/duplicate`, { method: 'POST' });
+  if (res.ok) {
+    const data = await res.json();
+    alert(`Duplicated as "${data.name}" with ${data.fields_copied} fields.`);
+    loadEquipment();
+  } else {
+    alert('Failed to duplicate equipment');
+  }
+}
+
+// ===== Archive Equipment =====
+async function archiveEquipment(id) {
+  const res = await fetch(`/api/equipment/${encodeURIComponent(id)}/archive`, { method: 'PATCH' });
+  if (res.ok) {
+    loadEquipment();
+  } else {
+    alert('Failed to archive/restore equipment');
+  }
+}
+
 // ===== Delete Equipment =====
 async function deleteEquipment(id, name) {
-  if (!confirm(`Are you sure you want to delete "${name}"? This will remove all maintenance records.`)) return;
+  if (!confirm(`Are you sure you want to PERMANENTLY delete "${name}"? This will remove all maintenance records.`)) return;
   await fetch(`/api/equipment/${encodeURIComponent(id)}`, { method: 'DELETE' });
   loadEquipment();
 }

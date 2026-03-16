@@ -12,14 +12,19 @@
     <div class="nav-brand">
       🔧 Maintenance Management
     </div>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" title="Toggle navigation menu">☰</button>
     <div class="nav-links">
-      <a href="/admin.html" class="nav-link active">⚙️ Equipment</a>
-      <a href="/reports.html" class="nav-link">📊 Reports</a>
-      <a href="/notifications.html" class="nav-link">
-        🔔 Alerts
-        <span id="alertBadge" class="badge" style="display:none;">0</span>
-      </a>
-      <a href="#" id="logoutBtn" class="nav-link">🚪 Logout</a>
+      <a href="/admin.html" class="nav-link active" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exceptions">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulters">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse electrical store inventory">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Follow-up and compliance tracking">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View detailed maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notifications">🔔 Alerts</a>
+      <a href="#" id="logoutBtn" class="nav-link" title="Sign out of your account">🚪 Logout</a>
     </div>
   </nav>
 
@@ -34,21 +39,21 @@
 
     <!-- Stats Row -->
     <div class="stats-row">
-      <div class="stat-card">
+      <div class="stat-card" title="Total number of registered equipment">
         <div class="stat-icon">⚙️</div>
         <div class="stat-info">
           <span class="stat-number" id="statTotal">0</span>
           <span class="stat-label">Total Equipment</span>
         </div>
       </div>
-      <div class="stat-card stat-danger">
+      <div class="stat-card stat-danger" title="Equipment marked as critical — triggers admin alerts on any submission">
         <div class="stat-icon">🔴</div>
         <div class="stat-info">
           <span class="stat-number" id="statCritical">0</span>
           <span class="stat-label">Critical Equipment</span>
         </div>
       </div>
-      <div class="stat-card stat-warning">
+      <div class="stat-card stat-warning" title="Number of unread alert notifications">
         <div class="stat-icon">🔔</div>
         <div class="stat-info">
           <span class="stat-number" id="statAlerts">0</span>
@@ -59,7 +64,10 @@
 
     <div class="page-header">
       <h2>📋 Equipment List</h2>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-sm" id="toggleArchivedBtn" onclick="toggleArchived()" style="background:var(--gray-200);color:var(--gray-700);" title="Show or hide archived equipment">
+          📦 Show Archived
+        </button>
         <button class="btn btn-secondary" id="downloadTemplateBtn" title="Download Excel template">
           📥 Template
         </button>
@@ -69,11 +77,11 @@
         <button class="btn btn-secondary" id="exportExcelBtn" title="Export equipment to Excel">
           📊 Export Excel
         </button>
-        <button class="btn btn-primary" id="addEquipmentBtn">
+        <button class="btn btn-primary" id="addEquipmentBtn" title="Add a new piece of equipment">
           ➕ Add Equipment
         </button>
       </div>
-      <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;">
+      <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;" title="Select an Excel file to import">
     </div>
 
     <div id="equipmentList" class="card-grid"></div>
@@ -83,38 +91,38 @@
       <div class="modal-content">
         <div class="modal-header">
           <h2>➕ Add New Equipment</h2>
-          <button class="modal-close" onclick="closeModal()">&times;</button>
+          <button class="modal-close" onclick="closeModal()" title="Close this dialog">&times;</button>
         </div>
         <form id="equipmentForm">
           <div class="form-row">
             <div class="form-group">
               <label>Equipment Name *</label>
-              <input type="text" id="eqName" required placeholder="e.g., HVAC Unit #3">
+              <input type="text" id="eqName" required placeholder="e.g., HVAC Unit #3" title="Enter equipment name">
             </div>
             <div class="form-group">
               <label>Location Name *</label>
-              <input type="text" id="eqLocation" required placeholder="e.g., Building A, Floor 2">
+              <input type="text" id="eqLocation" required placeholder="e.g., Building A, Floor 2" title="Enter the equipment's physical location">
             </div>
           </div>
           <div class="form-group">
             <label>Description</label>
-            <textarea id="eqDescription" placeholder="Equipment details..."></textarea>
+            <textarea id="eqDescription" placeholder="Equipment details..." title="Optional description of the equipment"></textarea>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label>Latitude *</label>
-              <input type="number" id="eqLat" step="any" required placeholder="e.g., 28.6139">
+              <input type="number" id="eqLat" step="any" required placeholder="e.g., 28.6139" title="GPS latitude coordinate for geofencing">
             </div>
             <div class="form-group">
               <label>Longitude *</label>
-              <input type="number" id="eqLng" step="any" required placeholder="e.g., 77.2090">
+              <input type="number" id="eqLng" step="any" required placeholder="e.g., 77.2090" title="GPS longitude coordinate for geofencing">
             </div>
             <div class="form-group">
               <label>Radius (meters)</label>
-              <input type="number" id="eqRadius" value="100" min="10" max="5000" placeholder="100">
+              <input type="number" id="eqRadius" value="100" min="10" max="5000" placeholder="100" title="Max distance (meters) from equipment for GPS verification">
             </div>
           </div>
-          <button type="button" class="btn btn-secondary" id="useMyLocationBtn">
+          <button type="button" class="btn btn-secondary" id="useMyLocationBtn" title="Auto-fill latitude and longitude from your current GPS position">
             📍 Use My Current Location
           </button>
 
@@ -130,13 +138,13 @@
           <p class="hint">Define the fields engineers will fill during maintenance checks. Set min/max for numeric fields to enable automatic abnormality detection.</p>
 
           <div id="fieldsContainer"></div>
-          <button type="button" class="btn btn-secondary" id="addFieldBtn">
+          <button type="button" class="btn btn-secondary" id="addFieldBtn" title="Add a new maintenance check field to the form">
             ➕ Add Field
           </button>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-            <button type="submit" class="btn btn-primary">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()" title="Discard changes and close">Cancel</button>
+            <button type="submit" class="btn btn-primary" title="Save the new equipment">
               💾 Create Equipment
             </button>
           </div>
@@ -149,14 +157,82 @@
       <div class="modal-content modal-sm">
         <div class="modal-header">
           <h2>📱 QR Code</h2>
-          <button class="modal-close" onclick="closeQrModal()">&times;</button>
+          <button class="modal-close" onclick="closeQrModal()" title="Close QR code dialog">&times;</button>
         </div>
         <div id="qrContent" class="qr-display"></div>
         <div class="modal-footer">
-          <button class="btn btn-primary" onclick="printQR()">
+          <button class="btn btn-primary" onclick="printQR()" title="Print this QR code for attaching to equipment">
             🖨️ Print QR Code
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Edit Equipment Modal -->
+    <div id="editModal" class="modal" style="display:none;">
+      <div class="modal-overlay" onclick="closeEditModal()"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>✏️ Edit Equipment</h2>
+          <button class="modal-close" onclick="closeEditModal()" title="Close this dialog">&times;</button>
+        </div>
+        <form id="editEquipmentForm">
+          <input type="hidden" id="editEqId">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Equipment Name *</label>
+              <input type="text" id="editEqName" required placeholder="e.g., HVAC Unit #3" title="Edit equipment name">
+            </div>
+            <div class="form-group">
+              <label>Location Name *</label>
+              <input type="text" id="editEqLocation" required placeholder="e.g., Building A, Floor 2" title="Edit location name">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="editEqDescription" placeholder="Equipment details..." title="Edit equipment description"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Latitude *</label>
+              <input type="number" id="editEqLat" step="any" required placeholder="e.g., 28.6139" title="Edit GPS latitude">
+            </div>
+            <div class="form-group">
+              <label>Longitude *</label>
+              <input type="number" id="editEqLng" step="any" required placeholder="e.g., 77.2090" title="Edit GPS longitude">
+            </div>
+            <div class="form-group">
+              <label>Radius (meters)</label>
+              <input type="number" id="editEqRadius" value="100" min="10" max="5000" placeholder="100" title="Edit geofence radius in meters">
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary" id="editUseMyLocationBtn" title="Auto-fill from your current GPS position">
+            📍 Use My Current Location
+          </button>
+          <div class="form-group" style="margin-top:1rem;">
+            <label class="checkbox-label" style="font-size:1rem;">
+              <input type="checkbox" id="editEqCritical">
+              🔴 Critical Equipment
+            </label>
+          </div>
+          <hr>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <h3 style="margin:0;">📋 Maintenance Check Fields <span id="editFieldCount" class="hint" style="font-weight:normal;"></span></h3>
+            <button type="button" class="btn btn-danger btn-sm" onclick="if(confirm('Remove ALL fields?')){document.getElementById('editFieldsContainer').innerHTML='';updateEditFieldCount();}" title="Remove all maintenance check fields at once">
+              🗑️ Remove All
+            </button>
+          </div>
+          <div id="editFieldsContainer"></div>
+          <button type="button" class="btn btn-secondary" onclick="addEditField()" title="Add a new maintenance check field">
+            ➕ Add Field
+          </button>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeEditModal()" title="Discard changes and close">Cancel</button>
+            <button type="submit" class="btn btn-primary" title="Save equipment changes">
+              💾 Save Changes
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 
@@ -165,7 +241,7 @@
       <div class="modal-content modal-lg">
         <div class="modal-header">
           <h2>📜 Maintenance History</h2>
-          <button class="modal-close" onclick="closeHistoryModal()">&times;</button>
+          <button class="modal-close" onclick="closeHistoryModal()" title="Close maintenance history">&times;</button>
         </div>
         <div id="historyContent"></div>
       </div>
@@ -184,8 +260,8 @@
           <p class="hint" style="margin-top:1rem;">This is a critical field abnormality requiring immediate attention.</p>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="dismissCriticalAlert()">Dismiss</button>
-          <a href="/notifications.html" class="btn btn-danger">🔔 View All Alerts</a>
+          <button class="btn btn-secondary" onclick="dismissCriticalAlert()" title="Dismiss this critical alert">Dismiss</button>
+          <a href="/notifications.html" class="btn btn-danger" title="Go to the alerts page to see all notifications">🔔 View All Alerts</a>
         </div>
       </div>
     </div>

@@ -12,7 +12,8 @@
       🔧 Maintenance Management
     </div>
     <div class="nav-links">
-      <span class="nav-link">📷 Use Phone Camera to Scan</span>
+      <a href="/tasks.html" class="nav-link" title="View your assigned maintenance tasks">📋 My Tasks</a>
+      <span class="nav-link" title="Use your phone's camera app to scan equipment QR codes">📷 Use Phone Camera to Scan</span>
     </div>
   </nav>
 
@@ -27,21 +28,21 @@
 
     <!-- Quick Actions -->
     <div class="stats-row">
-      <div class="stat-card stat-action">
+      <div class="stat-card stat-action" title="Open your phone's camera and point it at the QR code on the equipment">
         <div class="stat-icon" style="font-size:2.5rem;">📷</div>
         <div class="stat-info">
           <span class="stat-number" style="font-size:1rem;">Use Phone Camera</span>
           <span class="stat-label">Point camera at QR code on equipment</span>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" title="Total number of equipment registered in the system">
         <div class="stat-icon">⚙️</div>
         <div class="stat-info">
           <span class="stat-number" id="eqCount">0</span>
           <span class="stat-label">Equipment Available</span>
         </div>
       </div>
-      <div class="stat-card stat-danger">
+      <div class="stat-card stat-danger" title="Equipment marked as critical that needs priority attention">
         <div class="stat-icon">🔴</div>
         <div class="stat-info">
           <span class="stat-number" id="critCount">0</span>
@@ -89,11 +90,11 @@
       <div class="modal-content modal-sm">
         <div class="modal-header">
           <h2>📱 QR Code</h2>
-          <button class="modal-close" onclick="document.getElementById('qrModal').style.display='none'">&times;</button>
+          <button class="modal-close" onclick="document.getElementById('qrModal').style.display='none'" title="Close QR code dialog">&times;</button>
         </div>
         <div id="qrContent" class="qr-display"></div>
         <div class="modal-footer">
-          <button class="btn btn-primary" onclick="window.print()">
+          <button class="btn btn-primary" onclick="window.print()" title="Print this QR code for equipment labeling">
             🖨️ Print QR Code
           </button>
         </div>

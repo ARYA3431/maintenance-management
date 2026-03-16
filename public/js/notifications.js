@@ -25,11 +25,13 @@ async function loadNotifications() {
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const criticalCount = notifications.filter(n => !n.is_read && n.priority === 'critical').length;
   const badge = document.getElementById('alertBadge');
-  if (unreadCount > 0) {
-    badge.textContent = unreadCount;
-    badge.style.display = 'inline';
-  } else {
-    badge.style.display = 'none';
+  if (badge) {
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
   }
 
   // Update stats
@@ -102,5 +104,60 @@ function timeAgo(dateStr) {
   if (seconds < 60) return 'Just now';
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-  return Math.floor(seconds / 86400) + 'd ago';
+  if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
+  return date.toLocaleDateString();
+}
+
+// ===== Tab Switching =====
+function switchAlertTab(tab, el) {
+  document.querySelectorAll('.alert-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+  if (tab === 'history' && !historyLoaded) loadHistory();
+}
+
+// ===== Alert History =====
+let allHistory = [];
+let historyLoaded = false;
+let activeFilter = 'all';
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/notifications/history');
+    allHistory = await res.json();
+    historyLoaded = true;
+    renderHistory();
+  } catch (e) {
+    document.getElementById('historyList').innerHTML = '<div class="no-data"><div style="font-size:3rem;">❌</div><p>Failed to load history</p></div>';
+  }
+}
+
+function filterHistory(type, el) {
+  activeFilter = type;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderHistory();
+}
+
+function renderHistory() {
+  const container = document.getElementById('historyList');
+  const filtered = activeFilter === 'all' ? allHistory : allHistory.filter(h => h.type === activeFilter);
+
+  if (!filtered.length) {
+    const labels = { all: 'events', abnormality: 'abnormality alerts', overdue: 'overdue tasks', missed: 'missed tasks', completed: 'completed tasks', audit: 'audit log entries' };
+    container.innerHTML = `<div class="no-data"><div style="font-size:3rem;">📭</div><p>No ${labels[activeFilter] || 'events'} found yet.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(h => `
+    <div class="history-item">
+      <div class="history-icon">${h.icon}</div>
+      <div class="history-body">
+        <div class="history-title">${escapeHtml(h.title)}<span class="history-type ${h.type}">${h.type}</span></div>
+        <div class="history-msg">${escapeHtml(h.message)}</div>
+      </div>
+      <div class="history-time">${timeAgo(h.created_at)}</div>
+    </div>
+  `).join('');
 }

@@ -38,4 +38,8 @@ function verifyEmployee(employeeId) {
   return employees.get(String(employeeId).trim()) || null;
 }
 
-module.exports = { loadEmployees, verifyEmployee };
+function getAllEmployees() {
+  return Array.from(employees.values());
+}
+
+module.exports = { loadEmployees, verifyEmployee, getAllEmployees };

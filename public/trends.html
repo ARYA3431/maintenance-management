@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trend Analysis - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .trend-container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: flex-end; }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 12px; font-weight: 600; color: #64748b; }
+    .filter-group select, .filter-group input { padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 13px; }
+    .load-btn { padding: 8px 20px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; height: 38px; }
+    .trend-card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .trend-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .trend-title { font-weight: 700; font-size: 16px; }
+    .trend-badges { display: flex; gap: 6px; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .badge.up { background: #fee2e2; color: #991b1b; }
+    .badge.down { background: #d1fae5; color: #065f46; }
+    .badge.stable { background: #dbeafe; color: #1e40af; }
+    .badge.critical { background: #fee2e2; color: #991b1b; }
+    .trend-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .trend-stat { text-align: center; }
+    .trend-stat .val { font-size: 20px; font-weight: 800; }
+    .trend-stat .lbl { font-size: 11px; color: #94a3b8; }
+    .chart-area { height: 200px; position: relative; margin-top: 12px; border: 1px solid #f1f5f9; border-radius: 8px; overflow: hidden; }
+    .chart-svg { width: 100%; height: 100%; }
+    .range-line { stroke: #ef4444; stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.5; }
+    .reading-line { fill: none; stroke: #2563eb; stroke-width: 2; }
+    .reading-dot { fill: #2563eb; r: 3; }
+    .reading-dot.abnormal { fill: #ef4444; r: 5; }
+    .chart-label { font-size: 10px; fill: #94a3b8; }
+    .empty { text-align: center; padding: 60px 20px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" title="Toggle navigation menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exception classes">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link active" title="Analyze equipment reading trends over time">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulter reports">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse store inventory and locations">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Track follow-up tasks and compliance">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View and export maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notification history">🔔 Alerts</a>
+      <a href="/admin.html" class="nav-link" title="Go back to admin dashboard">← Back</a>
+    </div>
+  </nav>
+
+  <div class="trend-container">
+    <h1 style="margin:0 0 20px;">📈 Trend Analysis</h1>
+
+    <div class="filter-row">
+      <div class="filter-group">
+        <label>Equipment</label>
+        <select id="equipmentSelect" onchange="updateFields()" title="Select equipment to analyze its reading trends">
+          <option value="">— Select Equipment —</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Time Period</label>
+        <select id="daysSelect" title="Choose the time range for trend analysis">
+          <option value="30">Last 30 days</option>
+          <option value="90" selected>Last 90 days</option>
+          <option value="180">Last 6 months</option>
+          <option value="365">Last year</option>
+        </select>
+      </div>
+      <button class="load-btn" onclick="loadTrends()" title="Run trend analysis for the selected equipment and time period">📊 Analyze</button>
+    </div>
+
+    <div id="trendsContent">
+      <div class="empty">Select equipment and click Analyze to view reading trends</div>
+    </div>
+  </div>
+
+  <script>
+    let equipmentList = [];
+
+    async function loadEquipment() {
+      try {
+        const res = await fetch('/api/equipment');
+        equipmentList = await res.json();
+        const sel = document.getElementById('equipmentSelect');
+        equipmentList.forEach(e => {
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = `${e.name} — ${e.location_name}`;
+          sel.appendChild(opt);
+        });
+      } catch (e) { console.error(e); }
+    }
+
+    function updateFields() {}
+
+    async function loadTrends() {
+      const eqId = document.getElementById('equipmentSelect').value;
+      const days = document.getElementById('daysSelect').value;
+      if (!eqId) { alert('Select equipment first'); return; }
+
+      try {
+        const res = await fetch(`/api/maintenance/trends/${eqId}?days=${days}`);
+        const trends = await res.json();
+        renderTrends(trends);
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function renderTrends(trends) {
+      const container = document.getElementById('trendsContent');
+      if (trends.length === 0) {
+        container.innerHTML = '<div class="empty">No numeric readings found for this equipment. Submit inspection reports to generate trends.</div>';
+        return;
+      }
+
+      container.innerHTML = trends.map(t => {
+        const trendIcon = t.trend_direction === 'increasing' ? '📈' : t.trend_direction === 'decreasing' ? '📉' : '➡️';
+        const trendClass = t.trend_direction === 'increasing' ? 'up' : t.trend_direction === 'decreasing' ? 'down' : 'stable';
+
+        return `
+          <div class="trend-card">
+            <div class="trend-header">
+              <span class="trend-title">${t.field_name}</span>
+              <div class="trend-badges">
+                <span class="badge ${trendClass}">${trendIcon} ${t.trend_direction}</span>
+                ${t.is_critical ? '<span class="badge critical">CRITICAL</span>' : ''}
+                ${t.abnormal_rate > 20 ? '<span class="badge up">⚠️ High Abnormality Rate</span>' : ''}
+              </div>
+            </div>
+            <div class="trend-stats">
+              <div class="trend-stat"><div class="val">${t.average}</div><div class="lbl">Average</div></div>
+              <div class="trend-stat"><div class="val">${t.total_readings}</div><div class="lbl">Readings</div></div>
+              <div class="trend-stat"><div class="val" style="color:${t.abnormal_count > 0 ? '#ef4444' : '#22c55e'}">${t.abnormal_count}</div><div class="lbl">Abnormal</div></div>
+              <div class="trend-stat"><div class="val">${t.abnormal_rate}%</div><div class="lbl">Abnormal Rate</div></div>
+              <div class="trend-stat"><div class="val">${t.min_value ?? '—'}</div><div class="lbl">Min Limit</div></div>
+              <div class="trend-stat"><div class="val">${t.max_value ?? '—'}</div><div class="lbl">Max Limit</div></div>
+            </div>
+            <div class="chart-area">${renderChart(t)}</div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderChart(trend) {
+      const readings = trend.readings || [];
+      if (readings.length < 2) return '<div style="padding:40px;text-align:center;color:#94a3b8;">Not enough data for chart</div>';
+
+      const values = readings.map(r => r.value);
+      const minVal = Math.min(...values, trend.min_value ?? Infinity);
+      const maxVal = Math.max(...values, trend.max_value ?? -Infinity);
+      const range = maxVal - minVal || 1;
+      const padding = range * 0.1;
+
+      const W = 800;
+      const H = 180;
+      const margin = { top: 10, right: 10, bottom: 20, left: 40 };
+      const innerW = W - margin.left - margin.right;
+      const innerH = H - margin.top - margin.bottom;
+
+      function x(i) { return margin.left + (i / (readings.length - 1)) * innerW; }
+      function y(v) { return margin.top + innerH - ((v - minVal + padding) / (range + 2 * padding)) * innerH; }
+
+      const path = readings.map((r, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(r.value).toFixed(1)}`).join(' ');
+
+      const dots = readings.map((r, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(r.value).toFixed(1)}" class="reading-dot ${r.is_abnormal ? 'abnormal' : ''}" />
+         <title>${r.date}\nValue: ${r.value}\nBy: ${r.engineer || '?'}</title>`
+      ).join('');
+
+      let rangeLines = '';
+      if (trend.min_value != null) rangeLines += `<line x1="${margin.left}" y1="${y(trend.min_value).toFixed(1)}" x2="${W - margin.right}" y2="${y(trend.min_value).toFixed(1)}" class="range-line" /><text x="${W - margin.right + 2}" y="${y(trend.min_value).toFixed(1)}" class="chart-label" dominant-baseline="middle">Min: ${trend.min_value}</text>`;
+      if (trend.max_value != null) rangeLines += `<line x1="${margin.left}" y1="${y(trend.max_value).toFixed(1)}" x2="${W - margin.right}" y2="${y(trend.max_value).toFixed(1)}" class="range-line" /><text x="${W - margin.right + 2}" y="${y(trend.max_value).toFixed(1)}" class="chart-label" dominant-baseline="middle">Max: ${trend.max_value}</text>`;
+
+      return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${rangeLines}
+        <path d="${path}" class="reading-line" />
+        ${dots}
+      </svg>`;
+    }
+
+    loadEquipment();
+  </script>
+</body>
+</html>

@@ -3,3 +3,5 @@ maintenance.db
 *.db
 public/uploads/*
 !public/uploads/.gitkeep
+
+ngrok.exe

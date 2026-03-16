@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Defaulter Dashboard - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .dash-container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tab { padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: 600; background: white; border: 2px solid #e2e8f0; transition: all 0.2s; }
+    .tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-box { background: white; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .stat-box .num { font-size: 36px; font-weight: 800; }
+    .stat-box .lbl { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .stat-box.red .num { color: #ef4444; }
+    .stat-box.yellow .num { color: #f59e0b; }
+    .stat-box.green .num { color: #22c55e; }
+    .stat-box.blue .num { color: #2563eb; }
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 20px; }
+    th { background: #f1f5f9; padding: 12px; text-align: left; font-size: 12px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 12px; border-top: 1px solid #f1f5f9; font-size: 13px; }
+    tr:hover { background: #f8fafc; }
+    .compliance-bar { height: 8px; background: #fee2e2; border-radius: 4px; overflow: hidden; width: 100px; display: inline-block; }
+    .compliance-fill { height: 100%; border-radius: 4px; }
+    .drill-btn { padding: 4px 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .drill-panel { display: none; background: #f8fafc; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .drill-panel.open { display: block; }
+    .drill-panel h3 { margin: 0 0 12px; }
+    .drill-close { float: right; cursor: pointer; color: #94a3b8; font-size: 18px; }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .badge.critical { background: #fee2e2; color: #991b1b; }
+    .section-title { font-size: 18px; font-weight: 700; margin: 20px 0 12px; display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" title="Toggle navigation menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exception classes">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends over time">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link active" title="View non-compliance and defaulter reports">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse store inventory and locations">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Track follow-up tasks and compliance">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View and export maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notification history">🔔 Alerts</a>
+      <a href="/admin.html" class="nav-link" title="Go back to admin dashboard">← Back</a>
+    </div>
+  </nav>
+
+  <div class="dash-container">
+    <h1 style="margin:0 0 20px;">📊 Defaulter Dashboard</h1>
+
+    <div class="stats-grid" id="topStats"></div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('person', this)" title="View defaulters grouped by individual person">👤 By Person</div>
+      <div class="tab" onclick="switchTab('department', this)" title="View defaulters grouped by department">🏢 By Department</div>
+      <div class="tab" onclick="switchTab('equipment', this)" title="View defaulters grouped by equipment">🏭 By Equipment</div>
+    </div>
+
+    <div id="drillPanel" class="drill-panel">
+      <span class="drill-close" onclick="closeDrill()" title="Close drill-down details panel">✕</span>
+      <h3 id="drillTitle"></h3>
+      <div id="drillContent"></div>
+    </div>
+
+    <div id="personView"></div>
+    <div id="departmentView" style="display:none;"></div>
+    <div id="equipmentView" style="display:none;"></div>
+  </div>
+
+  <script>
+    let personData = [], deptData = [], equipData = [];
+    let currentTab = 'person';
+
+    async function loadAll() {
+      await Promise.all([loadByPerson(), loadByDepartment(), loadByEquipment()]);
+      renderTopStats();
+    }
+
+    async function loadByPerson() {
+      try {
+        const res = await fetch('/api/maintenance/defaulters/by-person');
+        personData = await res.json();
+        renderPerson();
+      } catch (e) { console.error(e); }
+    }
+
+    async function loadByDepartment() {
+      try {
+        const res = await fetch('/api/maintenance/defaulters/by-department');
+        deptData = await res.json();
+        renderDepartment();
+      } catch (e) { console.error(e); }
+    }
+
+    async function loadByEquipment() {
+      try {
+        const res = await fetch('/api/maintenance/defaulters/by-equipment');
+        equipData = await res.json();
+        renderEquipment();
+      } catch (e) { console.error(e); }
+    }
+
+    function renderTopStats() {
+      const totalOverdue = personData.reduce((s, p) => s + (p.overdue || 0), 0);
+      const totalMissed = personData.reduce((s, p) => s + (p.missed || 0), 0);
+      const totalCompleted = personData.reduce((s, p) => s + (p.completed || 0), 0);
+      const defaulterCount = personData.filter(p => (p.overdue || 0) + (p.missed || 0) > 0).length;
+
+      document.getElementById('topStats').innerHTML = `
+        <div class="stat-box red"><div class="num">${totalOverdue}</div><div class="lbl">Total Overdue</div></div>
+        <div class="stat-box yellow"><div class="num">${totalMissed}</div><div class="lbl">Total Missed</div></div>
+        <div class="stat-box green"><div class="num">${totalCompleted}</div><div class="lbl">Total Completed</div></div>
+        <div class="stat-box blue"><div class="num">${defaulterCount}</div><div class="lbl">Defaulters</div></div>
+      `;
+    }
+
+    function complianceBar(pct) {
+      const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
+      return `<div class="compliance-bar"><div class="compliance-fill" style="width:${pct}%;background:${color}"></div></div> <span style="font-weight:700;color:${color}">${pct}%</span>`;
+    }
+
+    function renderPerson() {
+      const c = document.getElementById('personView');
+      if (personData.length === 0) { c.innerHTML = '<div class="empty">No data</div>'; return; }
+      c.innerHTML = `<table>
+        <thead><tr><th>Employee ID</th><th>Department</th><th>Total</th><th>Completed</th><th>Overdue</th><th>Missed</th><th>Compliance</th><th>Last Done</th><th></th></tr></thead>
+        <tbody>${personData.map(p => `<tr>
+          <td><strong>${p.employee_id}</strong></td>
+          <td>${p.department || '—'}</td>
+          <td>${p.total_tasks}</td>
+          <td style="color:#22c55e;font-weight:700;">${p.completed}</td>
+          <td style="color:${p.overdue > 0 ? '#ef4444' : '#22c55e'};font-weight:700;">${p.overdue}</td>
+          <td style="color:${p.missed > 0 ? '#f59e0b' : '#22c55e'};font-weight:700;">${p.missed}</td>
+          <td>${complianceBar(p.compliance_pct || 0)}</td>
+          <td style="font-size:12px;">${p.last_completed || '—'}</td>
+          <td>${(p.overdue || 0) + (p.missed || 0) > 0 ? `<button class="drill-btn" onclick="drillPerson('${p.employee_id}')">Details</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    function renderDepartment() {
+      const c = document.getElementById('departmentView');
+      if (deptData.length === 0) { c.innerHTML = '<div class="empty">No data</div>'; return; }
+      c.innerHTML = `<table>
+        <thead><tr><th>Department</th><th>Total Tasks</th><th>Completed</th><th>Overdue</th><th>Missed</th><th>Defaulters</th></tr></thead>
+        <tbody>${deptData.map(d => `<tr>
+          <td><strong>${d.department}</strong></td>
+          <td>${d.total_tasks}</td>
+          <td style="color:#22c55e;font-weight:700;">${d.completed}</td>
+          <td style="color:${d.overdue > 0 ? '#ef4444' : '#22c55e'};font-weight:700;">${d.overdue}</td>
+          <td style="color:${d.missed > 0 ? '#f59e0b' : '#22c55e'};font-weight:700;">${d.missed}</td>
+          <td>${d.defaulter_count || 0}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    function renderEquipment() {
+      const c = document.getElementById('equipmentView');
+      if (equipData.length === 0) { c.innerHTML = '<div class="empty">No data</div>'; return; }
+      c.innerHTML = `<table>
+        <thead><tr><th>Equipment</th><th>Location</th><th>Total</th><th>Completed</th><th>Overdue</th><th>Missed</th><th>Compliance</th></tr></thead>
+        <tbody>${equipData.map(e => `<tr>
+          <td><strong>${e.equipment_name}</strong> ${e.is_critical ? '<span class="badge critical">CRITICAL</span>' : ''}</td>
+          <td>${e.location_name}</td>
+          <td>${e.total_tasks}</td>
+          <td style="color:#22c55e;font-weight:700;">${e.completed}</td>
+          <td style="color:${e.overdue > 0 ? '#ef4444' : '#22c55e'};font-weight:700;">${e.overdue}</td>
+          <td style="color:${e.missed > 0 ? '#f59e0b' : '#22c55e'};font-weight:700;">${e.missed}</td>
+          <td>${complianceBar(e.compliance_pct || 0)}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    async function drillPerson(empId) {
+      try {
+        const res = await fetch(`/api/maintenance/defaulters/by-person?employee_id=${encodeURIComponent(empId)}`);
+        const data = await res.json();
+        document.getElementById('drillTitle').textContent = `Overdue/Missed Tasks — ${empId}`;
+        const tasks = data.tasks || [];
+        document.getElementById('drillContent').innerHTML = tasks.length === 0
+          ? '<div class="empty">No overdue tasks</div>'
+          : `<table>
+              <thead><tr><th>Equipment</th><th>Location</th><th>Type</th><th>Frequency</th><th>Due Date</th><th>Status</th></tr></thead>
+              <tbody>${tasks.map(t => `<tr>
+                <td>${t.equipment_name}</td>
+                <td>${t.location_name}</td>
+                <td>${t.task_type}</td>
+                <td>${t.frequency}</td>
+                <td>${t.due_date}</td>
+                <td style="color:${t.status === 'overdue' ? '#ef4444' : '#f59e0b'};font-weight:700;">${t.status.toUpperCase()}</td>
+              </tr>`).join('')}</tbody></table>`;
+        document.getElementById('drillPanel').classList.add('open');
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    function closeDrill() { document.getElementById('drillPanel').classList.remove('open'); }
+
+    function switchTab(tab, el) {
+      currentTab = tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      if (el) el.classList.add('active');
+      ['personView','departmentView','equipmentView'].forEach(id => document.getElementById(id).style.display = 'none');
+      const map = { person: 'personView', department: 'departmentView', equipment: 'equipmentView' };
+      document.getElementById(map[tab]).style.display = 'block';
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>

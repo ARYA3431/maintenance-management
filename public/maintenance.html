@@ -11,8 +11,8 @@
 <body class="mobile-body">
   <!-- Slim mobile nav -->
   <nav class="mobile-nav">
-    <a href="javascript:history.back()" class="mobile-nav-back">‹</a>
-    <div class="mobile-nav-title">Maintenance Check</div>
+    <a href="javascript:void(0)" class="mobile-nav-back" id="backBtn" onclick="goBack()" title="Go back to previous step">‹</a>
+    <div class="mobile-nav-title" id="navTitle">Maintenance Check</div>
   </nav>
 
   <div class="mobile-container">
@@ -25,12 +25,13 @@
         <p class="muted">Please enter your Employee ID to continue.</p>
         <div style="margin:1.5rem 0;">
           <input type="text" id="employeeIdInput" class="mobile-input" inputmode="numeric" pattern="[0-9]*"
-            placeholder="e.g. 1016229" autocomplete="off" style="text-align:center;font-size:1.3rem;letter-spacing:2px;">
+            placeholder="e.g. 1016229" autocomplete="off" style="text-align:center;font-size:1.3rem;letter-spacing:2px;" title="Enter your numeric employee ID to verify your identity">
         </div>
-        <button class="mobile-btn mobile-btn-primary mobile-btn-full" id="verifyEmployeeBtn" onclick="verifyEmployee()">
+        <button class="mobile-btn mobile-btn-primary mobile-btn-full" id="verifyEmployeeBtn" onclick="verifyEmployee()" title="Verify your employee ID against the company database">
           Verify &amp; Continue
         </button>
         <p id="employeeError" class="muted small" style="color:#dc2626;margin-top:0.75rem;display:none;"></p>
+        <p id="employeeGreeting" class="muted" style="color:#16a34a;margin-top:0.75rem;display:none;font-weight:600;font-size:1.1rem;"></p>
         <div class="mobile-steps" style="margin-top:1.5rem;">
           <div class="mobile-step done">✓ QR Scanned</div>
           <div class="mobile-step active">Employee ID</div>
@@ -62,9 +63,37 @@
         <div class="fullscreen-icon">📍</div>
         <h2>Location Issue</h2>
         <p id="locationDeniedMsg" class="muted" style="white-space:pre-line;">Could not access GPS location.</p>
-        <button class="mobile-btn mobile-btn-primary" onclick="attemptLocation()" style="margin-top:1rem;">🔄 Retry Location</button>
-        <button class="mobile-btn mobile-btn-secondary" onclick="skipLocation()" style="margin-top:0.5rem;">Continue without GPS</button>
+        <button class="mobile-btn mobile-btn-primary" onclick="attemptLocation()" style="margin-top:1rem;" title="Try getting your GPS location again">🔄 Retry Location</button>
+        <button class="mobile-btn mobile-btn-secondary" onclick="skipLocation()" style="margin-top:0.5rem;" title="Skip GPS verification — report will be marked as unverified location">Continue without GPS</button>
         <p class="muted small" style="margin-top:1rem;color:#dc2626;">⚠️ Without GPS, your report will be marked as "unverified location".</p>
+      </div>
+    </div>
+
+    <!-- Task Type Selection -->
+    <div id="taskTypeStep" style="display:none;">
+      <div class="mobile-fullscreen-card">
+        <div class="fullscreen-icon">📋</div>
+        <h2>What are you doing?</h2>
+        <p class="muted">Select the type of task for this equipment.</p>
+        <div class="task-type-chooser">
+          <button class="task-type-btn" onclick="selectTaskType('inspection')" title="Select to perform a routine inspection check">
+            <span class="task-type-icon">🔍</span>
+            <span class="task-type-label">Inspection</span>
+            <span class="task-type-desc">Routine check — fill checklist, report readings</span>
+          </button>
+          <button class="task-type-btn" onclick="selectTaskType('maintenance')" title="Select to perform a maintenance or repair task">
+            <span class="task-type-icon">🔧</span>
+            <span class="task-type-label">Maintenance</span>
+            <span class="task-type-desc">Repair / service — record work done, parts replaced</span>
+          </button>
+        </div>
+        <div class="mobile-steps" style="margin-top:1.5rem;">
+          <div class="mobile-step done">✓ QR Scanned</div>
+          <div class="mobile-step done">✓ Employee ID</div>
+          <div class="mobile-step done">✓ GPS</div>
+          <div class="mobile-step active">Task Type</div>
+          <div class="mobile-step">Checklist</div>
+        </div>
       </div>
     </div>
 
@@ -78,8 +107,11 @@
           <p id="eqLocation" class="muted small"></p>
           <p id="eqDescription" class="muted small"></p>
         </div>
-        <div id="locationBadge" class="gps-chip verified" style="display:none;">
-          📍 GPS OK
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span id="taskTypeBadge" class="task-type-badge">🔍 Inspection</span>
+          <div id="locationBadge" class="gps-chip verified" style="display:none;">
+            📍 GPS OK
+          </div>
         </div>
       </div>
 
@@ -99,7 +131,32 @@
             <span class="field-icon">📝</span>
             <span>Additional Notes</span>
           </div>
-          <textarea id="notes" class="mobile-textarea" rows="3" placeholder="Any observations, issues, or recommendations..."></textarea>
+          <textarea id="notes" class="mobile-textarea" rows="3" placeholder="Any observations, issues, or recommendations..." title="Add any additional observations or recommendations"></textarea>
+        </div>
+
+        <!-- Maintenance-only fields (hidden for inspection) -->
+        <div id="maintenanceExtraFields" style="display:none;">
+          <div class="field-card field-card-maintenance">
+            <div class="field-card-label">
+              <span class="field-icon">🔧</span>
+              <span>Work Done <span class="required-star">*</span></span>
+            </div>
+            <textarea id="workDone" class="mobile-textarea" rows="3" placeholder="Describe the maintenance/repair work performed..." title="Describe the maintenance or repair work you performed"></textarea>
+          </div>
+          <div class="field-card field-card-maintenance">
+            <div class="field-card-label">
+              <span class="field-icon">🔩</span>
+              <span>Parts Replaced</span>
+            </div>
+            <textarea id="partsReplaced" class="mobile-textarea" rows="2" placeholder="List parts replaced (if any)..." title="List any parts that were replaced during maintenance"></textarea>
+          </div>
+          <div class="field-card field-card-maintenance">
+            <div class="field-card-label">
+              <span class="field-icon">⏱️</span>
+              <span>Time Spent (minutes)</span>
+            </div>
+            <input type="number" id="timeSpent" class="mobile-input" inputmode="numeric" min="1" placeholder="e.g. 45" title="Enter total time spent on this maintenance task in minutes">
+          </div>
         </div>
 
         <!-- Photo -->
@@ -114,17 +171,41 @@
             <img id="photoImg">
             <button type="button" class="remove-photo-btn" onclick="removePhoto()">✕</button>
           </div>
-          <button type="button" class="photo-capture-btn" id="photoCaptureBtn" onclick="document.getElementById('photoInput').click()">
+          <button type="button" class="photo-capture-btn" id="photoCaptureBtn" onclick="document.getElementById('photoInput').click()" title="Take or upload a photo as evidence">
             <span class="photo-btn-icon">📷</span>
             <span>Tap to take photo</span>
           </button>
         </div>
 
+        <!-- Evidence fields (shown when abnormality detected) -->
+        <div id="evidenceFields" style="display:none;">
+          <div class="field-card" style="border-left:3px solid #f59e0b;">
+            <div class="field-card-label">
+              <span class="field-icon">⚡</span>
+              <span>Abnormality Reason</span>
+              <span class="optional-tag">If abnormal</span>
+            </div>
+            <textarea id="abnormalReason" class="mobile-textarea" rows="2" placeholder="Describe what looked/sounded abnormal..." title="Describe the abnormality you observed"></textarea>
+          </div>
+          <div class="field-card" style="border-left:3px solid #22c55e;">
+            <div class="field-card-label">
+              <span class="field-icon">🛠️</span>
+              <span>Corrective Action Taken</span>
+              <span class="optional-tag">If any</span>
+            </div>
+            <textarea id="correctiveAction" class="mobile-textarea" rows="2" placeholder="What action did you take on-site (if any)..." title="Describe any corrective action you took on-site"></textarea>
+          </div>
+        </div>
+
         <!-- Submit (sticky) -->
         <div class="submit-sticky">
-          <button type="submit" class="mobile-btn mobile-btn-primary mobile-btn-full" id="submitBtn">
+          <button type="submit" class="mobile-btn mobile-btn-primary mobile-btn-full" id="submitBtn" title="Submit your completed maintenance or inspection report">
             Submit Report
           </button>
+          <button type="button" class="mobile-btn mobile-btn-full" id="forceSubmitBtn" style="display:none;background:#f59e0b;color:#fff;margin-top:8px;border:none;padding:14px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;" title="Submit report regardless of GPS location">
+            ⚠️ Submit Always (Override GPS)
+          </button>
+          <p id="gpsWarningMsg" style="display:none;color:#dc2626;font-size:12px;text-align:center;margin-top:6px;"></p>
         </div>
       </form>
     </div>
@@ -154,7 +235,7 @@
         </div>
         <p id="abnormalityMessage" class="abnormal-msg"></p>
         <p class="muted small">Admin has been notified automatically.</p>
-        <button class="mobile-btn mobile-btn-danger mobile-btn-full" onclick="document.getElementById('abnormalityPopup').style.display='none'">
+        <button class="mobile-btn mobile-btn-danger mobile-btn-full" onclick="document.getElementById('abnormalityPopup').style.display='none'" title="Acknowledge this abnormality alert">
           Acknowledged
         </button>
       </div>
@@ -162,6 +243,25 @@
 
   </div>
 
+  <!-- Offline indicator -->
+  <div id="offlineBar" style="display:none;position:fixed;top:0;left:0;right:0;background:#f59e0b;color:white;text-align:center;padding:6px;font-size:13px;font-weight:600;z-index:9999;">
+    📡 You are offline — reports will be saved and synced when connection returns
+  </div>
+
   <script src="/js/maintenance.js"></script>
+  <script>
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    // Offline detection
+    function updateOnlineStatus() {
+      document.getElementById('offlineBar').style.display = navigator.onLine ? 'none' : 'block';
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+  </script>
 </body>
 </html>

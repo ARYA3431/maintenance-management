@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Store Inventory - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .store-container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+    .store-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .store-header h1 { margin: 0; font-size: 1.5rem; }
+
+    /* Search & Filter Bar */
+    .search-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); align-items: center; }
+    .search-input { flex: 1; min-width: 200px; padding: 10px 16px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+    .search-input:focus { border-color: #2563eb; }
+    .search-input::placeholder { color: #94a3b8; }
+    .filter-select { padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 13px; background: white; min-width: 160px; }
+    .search-btn { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px; }
+    .search-btn:hover { background: #1d4ed8; }
+    .clear-btn { padding: 10px 16px; background: #f1f5f9; color: #475569; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 13px; }
+
+    /* Stats Row */
+    .store-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .store-stat { background: white; border-radius: 12px; padding: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .store-stat .num { font-size: 28px; font-weight: 800; color: #2563eb; }
+    .store-stat .lbl { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .store-stat.rack .num { color: #8b5cf6; }
+    .store-stat.cupboard .num { color: #059669; }
+
+    /* Location Cards */
+    .location-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .loc-card { background: white; border-radius: 10px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); cursor: pointer; transition: all 0.2s; border: 2px solid transparent; text-align: center; }
+    .loc-card:hover { border-color: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .loc-card.active { border-color: #2563eb; background: #eff6ff; }
+    .loc-card .loc-icon { font-size: 28px; margin-bottom: 6px; }
+    .loc-card .loc-name { font-weight: 700; font-size: 14px; color: #1e293b; }
+    .loc-card .loc-count { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+    /* Table */
+    .table-wrapper { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow-x: auto; }
+    .store-table { width: 100%; border-collapse: collapse; min-width: 700px; }
+    .store-table thead { background: #1e293b; color: white; position: sticky; top: 0; z-index: 5; }
+    .store-table th { padding: 12px 14px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; white-space: nowrap; }
+    .store-table td { padding: 10px 14px; border-top: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; }
+    .store-table tbody tr { transition: background 0.15s; }
+    .store-table tbody tr:hover { background: #f8fafc; }
+    .store-table tbody tr:nth-child(even) { background: #fafbfc; }
+    .store-table tbody tr:nth-child(even):hover { background: #f1f5f9; }
+
+    .loc-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .loc-badge.rack { background: #ede9fe; color: #6d28d9; }
+    .loc-badge.cupboard { background: #d1fae5; color: #065f46; }
+    .loc-badge.scrap { background: #fee2e2; color: #991b1b; }
+    .loc-badge.other { background: #f1f5f9; color: #475569; }
+
+    .sub-badge { display: inline-block; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 700; min-width: 22px; text-align: center; }
+    .qty-cell { font-weight: 700; color: #1e293b; }
+    .qty-cell.empty { color: #94a3b8; font-weight: 400; }
+    .code-cell { font-family: monospace; font-size: 12px; color: #6366f1; }
+    .material-cell { font-weight: 500; max-width: 350px; }
+    .result-info { padding: 12px 16px; color: #64748b; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+    .no-results { text-align: center; padding: 60px 20px; color: #94a3b8; }
+    .no-results .icon { font-size: 48px; margin-bottom: 12px; }
+    .highlight { background: #fef08a; padding: 1px 2px; border-radius: 3px; }
+
+    /* Transaction Modal */
+    .txn-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .txn-modal.open { display: flex; }
+    .txn-modal-content { background: white; border-radius: 16px; padding: 28px; max-width: 500px; width: 92%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .txn-modal-content h2 { margin: 0 0 20px; font-size: 1.3rem; }
+    .txn-field { margin-bottom: 16px; }
+    .txn-field label { display: block; font-weight: 600; font-size: 13px; color: #334155; margin-bottom: 6px; }
+    .txn-field input, .txn-field select, .txn-field textarea { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 14px; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+    .txn-field input:focus, .txn-field select:focus, .txn-field textarea:focus { border-color: #2563eb; }
+    .txn-field .info { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .txn-field .info strong { color: #1e293b; }
+    .txn-type-btns { display: flex; gap: 8px; }
+    .txn-type-btn { flex: 1; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; background: white; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .txn-type-btn.out { color: #dc2626; }
+    .txn-type-btn.in { color: #16a34a; }
+    .txn-type-btn.active.out { background: #fef2f2; border-color: #dc2626; }
+    .txn-type-btn.active.in { background: #f0fdf4; border-color: #16a34a; }
+    .txn-submit { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 10px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background 0.2s; }
+    .txn-submit:hover { background: #1d4ed8; }
+    .txn-submit:disabled { background: #94a3b8; cursor: not-allowed; }
+    .txn-cancel { width: 100%; padding: 10px; background: #f1f5f9; color: #475569; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 8px; }
+    .txn-btn { padding: 4px 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .txn-btn:hover { background: #1d4ed8; }
+
+    /* Transaction Log */
+    .txn-log-wrapper { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-top: 20px; overflow-x: auto; }
+    .txn-log-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; flex-wrap: wrap; gap: 8px; }
+    .txn-log-header h2 { margin: 0; font-size: 1.1rem; }
+    .txn-log-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+    .txn-log-filters select, .txn-log-filters input { padding: 6px 10px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 12px; }
+    .txn-log-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    .txn-log-table th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; }
+    .txn-log-table td { padding: 10px 12px; border-top: 1px solid #f1f5f9; font-size: 13px; }
+    .txn-log-table tbody tr:hover { background: #f8fafc; }
+    .type-in { color: #16a34a; font-weight: 700; }
+    .type-out { color: #dc2626; font-weight: 700; }
+    .txn-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .txn-tab { padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: 600; background: white; border: 2px solid #e2e8f0; transition: all 0.2s; }
+    .txn-tab.active { background: #2563eb; color: white; border-color: #2563eb; }
+
+    @media (max-width: 768px) {
+      .location-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+      .loc-card { padding: 10px; }
+      .loc-card .loc-icon { font-size: 22px; }
+      .loc-card .loc-name { font-size: 12px; }
+      .search-bar { flex-direction: column; }
+      .search-input { min-width: unset; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" title="Toggle navigation menu">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exceptions">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulters">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link active" title="Browse electrical store inventory">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Follow-up and compliance tracking">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View detailed maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notifications">🔔 Alerts</a>
+      <a href="/admin.html" class="nav-link" title="Return to the equipment page">← Back</a>
+    </div>
+  </nav>
+
+  <div class="store-container">
+    <div class="store-header">
+      <h1>🏪 Electrical Store Inventory</h1>
+      <span id="lastUpdated" style="color:#94a3b8;font-size:12px;"></span>
+    </div>
+
+    <!-- Tabs: Inventory vs Transaction Log -->
+    <div class="txn-tabs">
+      <div class="txn-tab active" onclick="switchStoreTab('inventory')" title="Browse store inventory items">📦 Inventory</div>
+      <div class="txn-tab" onclick="switchStoreTab('transactions')" title="View IN/OUT transaction history">📋 Transaction Log</div>
+    </div>
+
+    <!-- ===== INVENTORY TAB ===== -->
+    <div id="inventoryTab">
+
+    <!-- Stats -->
+    <div class="store-stats" id="storeStats"></div>
+
+    <!-- Search Bar -->
+    <div class="search-bar">
+      <input type="text" class="search-input" id="searchInput" placeholder="🔍 Search materials, codes, locations..." onkeydown="if(event.key==='Enter')doSearch()" title="Search by material name, part code, or location">
+      <select class="filter-select" id="locationFilter" onchange="doSearch()" title="Filter items by storage location">
+        <option value="">📍 All Locations</option>
+      </select>
+      <button class="search-btn" onclick="doSearch()" title="Search the inventory">Search</button>
+      <button class="clear-btn" onclick="clearSearch()" title="Clear search and show all items">Clear</button>
+    </div>
+
+    <!-- Location Cards -->
+    <div class="location-grid" id="locationGrid"></div>
+
+    <!-- Results -->
+    <div class="result-info" id="resultInfo" style="display:none;"></div>
+
+    <!-- Table -->
+    <div class="table-wrapper">
+      <table class="store-table">
+        <thead>
+          <tr>
+            <th title="Row number">#</th>
+            <th title="Storage location (rack or cupboard)">Location</th>
+            <th title="Sub-section within the location">Section</th>
+            <th title="Position within the section">Position</th>
+            <th title="Name and description of the material">Material Description</th>
+            <th title="Unique part or material code">Part Code</th>
+            <th title="Available quantity in stock">Quantity</th>
+            <th title="Record IN/OUT transaction">Action</th>
+          </tr>
+        </thead>
+        <tbody id="storeBody">
+          <tr><td colspan="8" class="no-results"><div class="icon">📦</div>Loading store inventory...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div><!-- /inventoryTab -->
+
+    <!-- ===== TRANSACTION LOG TAB ===== -->
+    <div id="transactionsTab" style="display:none;">
+      <div class="txn-log-wrapper">
+        <div class="txn-log-header">
+          <h2>📋 Transaction Log</h2>
+          <div class="txn-log-filters">
+            <select id="txnFilterType" onchange="loadTransactions()" title="Filter by IN or OUT transactions">
+              <option value="">All Types</option>
+              <option value="IN">📥 IN Only</option>
+              <option value="OUT">📤 OUT Only</option>
+            </select>
+            <input type="text" id="txnFilterItem" placeholder="🔍 Search item..." onkeydown="if(event.key==='Enter')loadTransactions()" title="Search transactions by item name">
+            <input type="text" id="txnFilterEmp" placeholder="Emp ID..." onkeydown="if(event.key==='Enter')loadTransactions()" title="Filter transactions by employee ID">
+            <button class="search-btn" style="padding:6px 14px;font-size:12px;" onclick="loadTransactions()" title="Apply transaction filters">Filter</button>
+          </div>
+        </div>
+        <table class="txn-log-table">
+          <thead>
+            <tr>
+              <th title="Date and time of the transaction">Date/Time</th>
+              <th title="IN (received) or OUT (issued)">Type</th>
+              <th title="Name of the item">Item</th>
+              <th title="Storage location of the item">Location</th>
+              <th title="Number of units transacted">Qty</th>
+              <th title="Employee ID of person who performed the transaction">Emp ID</th>
+              <th title="Name of the employee">Name</th>
+              <th title="Department of the employee">Dept</th>
+              <th title="Additional notes for the transaction">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="txnLogBody">
+            <tr><td colspan="9" style="text-align:center;padding:40px;color:#94a3b8;">Loading transactions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div><!-- /transactionsTab -->
+  </div>
+
+  <!-- Transaction Modal -->
+  <div class="txn-modal" id="txnModal">
+    <div class="txn-modal-content">
+      <h2>📦 Inventory Transaction</h2>
+
+      <div class="txn-field">
+        <label>Item</label>
+        <input type="text" id="txnItemName" readonly title="Item selected for transaction">
+        <div class="info" id="txnItemInfo"></div>
+      </div>
+
+      <div class="txn-field">
+        <label>IN / OUT</label>
+        <div class="txn-type-btns">
+          <button class="txn-type-btn in" onclick="setTxnType('IN')" title="Receive items into inventory">📥 IN</button>
+          <button class="txn-type-btn out active" onclick="setTxnType('OUT')" title="Issue items out of inventory">📤 OUT</button>
+        </div>
+      </div>
+
+      <div class="txn-field">
+        <label>Quantity</label>
+        <input type="number" id="txnQty" min="1" placeholder="Enter quantity" title="Number of units to transact">
+      </div>
+
+      <div class="txn-field">
+        <label>Taken By / Received By (Emp ID)</label>
+        <input type="text" id="txnEmpId" inputmode="numeric" placeholder="e.g. 1016229" title="Enter the employee ID of the person taking or returning items">
+      </div>
+
+      <div class="txn-field">
+        <label>Notes (Optional)</label>
+        <textarea id="txnNotes" rows="2" placeholder="Purpose, PO number, etc." title="Add any notes about this transaction"></textarea>
+      </div>
+
+      <button class="txn-submit" id="txnSubmitBtn" onclick="submitTransaction()" title="Submit this inventory transaction">Submit Transaction</button>
+      <button class="txn-cancel" onclick="closeTxnModal()" title="Cancel and close this dialog">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    let allItems = [];
+    let allLocations = [];
+    let activeLocation = '';
+    let searchQuery = '';
+
+    async function loadData() {
+      try {
+        const [itemsRes, locsRes] = await Promise.all([
+          fetch('/api/store'),
+          fetch('/api/store/locations')
+        ]);
+        const itemsData = await itemsRes.json();
+        allItems = itemsData.items || [];
+        allLocations = await locsRes.json();
+
+        renderStats();
+        renderLocations();
+        renderTable(allItems);
+        document.getElementById('lastUpdated').textContent = 'Data from store_list.xlsx';
+      } catch (e) {
+        console.error(e);
+        document.getElementById('storeBody').innerHTML = '<tr><td colspan="8" class="no-results"><div class="icon">❌</div>Failed to load store data</td></tr>';
+      }
+    }
+
+    function renderStats() {
+      const racks = allLocations.filter(l => l.type === 'Rack');
+      const cupboards = allLocations.filter(l => l.type === 'Cupboard');
+      const rackItems = allItems.filter(i => i.locationType === 'Rack').length;
+      const cupboardItems = allItems.filter(i => i.locationType === 'Cupboard').length;
+
+      document.getElementById('storeStats').innerHTML = `
+        <div class="store-stat"><div class="num">${allItems.length}</div><div class="lbl">Total Items</div></div>
+        <div class="store-stat rack"><div class="num">${racks.length}</div><div class="lbl">Racks</div></div>
+        <div class="store-stat cupboard"><div class="num">${cupboards.length}</div><div class="lbl">Cupboards</div></div>
+        <div class="store-stat"><div class="num">${allLocations.length}</div><div class="lbl">Locations</div></div>
+      `;
+    }
+
+    function renderLocations() {
+      const select = document.getElementById('locationFilter');
+      allLocations.forEach(loc => {
+        const opt = document.createElement('option');
+        opt.value = loc.name;
+        opt.textContent = `${loc.name} (${loc.count})`;
+        select.appendChild(opt);
+      });
+
+      const grid = document.getElementById('locationGrid');
+      grid.innerHTML = allLocations.map(loc => {
+        const icon = loc.type === 'Rack' ? '🗄️' : loc.type === 'Cupboard' ? '🚪' : loc.type === 'Scrap' ? '♻️' : '📦';
+        return `<div class="loc-card" data-loc="${escHtml(loc.name)}" onclick="filterByLocation('${escHtml(loc.name)}')">
+          <div class="loc-icon">${icon}</div>
+          <div class="loc-name">${escHtml(loc.name)}</div>
+          <div class="loc-count">${loc.count} items</div>
+        </div>`;
+      }).join('');
+    }
+
+    function filterByLocation(loc) {
+      if (activeLocation === loc) {
+        activeLocation = '';
+      } else {
+        activeLocation = loc;
+      }
+      document.getElementById('locationFilter').value = activeLocation;
+      document.querySelectorAll('.loc-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.loc === activeLocation);
+      });
+      doSearch();
+    }
+
+    function doSearch() {
+      searchQuery = document.getElementById('searchInput').value.trim();
+      const locFilter = document.getElementById('locationFilter').value;
+      activeLocation = locFilter;
+
+      // Update location card highlights
+      document.querySelectorAll('.loc-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.loc === activeLocation);
+      });
+
+      let filtered = allItems;
+      if (locFilter) {
+        filtered = filtered.filter(i => i.location === locFilter);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(i =>
+          i.material.toLowerCase().includes(q) ||
+          i.code.toLowerCase().includes(q) ||
+          i.location.toLowerCase().includes(q) ||
+          i.sub.toLowerCase().includes(q) ||
+          i.quantity.toLowerCase().includes(q)
+        );
+      }
+      renderTable(filtered);
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('locationFilter').value = '';
+      searchQuery = '';
+      activeLocation = '';
+      document.querySelectorAll('.loc-card').forEach(c => c.classList.remove('active'));
+      renderTable(allItems);
+    }
+
+    function renderTable(items) {
+      const info = document.getElementById('resultInfo');
+      if (searchQuery || activeLocation) {
+        info.style.display = 'flex';
+        let text = `Showing ${items.length} item${items.length !== 1 ? 's' : ''}`;
+        if (searchQuery) text += ` matching "${escHtml(searchQuery)}"`;
+        if (activeLocation) text += ` in ${escHtml(activeLocation)}`;
+        info.innerHTML = `<span>${text}</span><span style="color:#2563eb;cursor:pointer;" onclick="clearSearch()">Show All</span>`;
+      } else {
+        info.style.display = 'none';
+      }
+
+      const tbody = document.getElementById('storeBody');
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="no-results"><div class="icon">🔍</div>No items found matching your search</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = items.map((item, idx) => {
+        const typeClass = item.locationType.toLowerCase();
+        const material = searchQuery ? highlightText(item.material, searchQuery) : escHtml(item.material);
+        const code = searchQuery ? highlightText(item.code, searchQuery) : escHtml(item.code);
+
+        return `<tr>
+          <td style="color:#94a3b8;font-size:12px;">${idx + 1}</td>
+          <td><span class="loc-badge ${typeClass}">${escHtml(item.location)}</span></td>
+          <td>${item.sub ? `<span class="sub-badge">${escHtml(item.sub)}</span>` : '<span style="color:#cbd5e1;">—</span>'}</td>
+          <td style="text-align:center;">${escHtml(item.position) || '<span style="color:#cbd5e1;">—</span>'}</td>
+          <td class="material-cell">${material}</td>
+          <td class="code-cell">${code || '<span style="color:#cbd5e1;">—</span>'}</td>
+          <td class="${item.quantity ? 'qty-cell' : 'qty-cell empty'}">${escHtml(item.quantity) || '—'}</td>
+          <td><button class="txn-btn" onclick="openTxnModal(${JSON.stringify(item.material).replace(/"/g, '&quot;')}, ${JSON.stringify(item.location).replace(/"/g, '&quot;')}, ${JSON.stringify(item.quantity).replace(/"/g, '&quot;')})" title="Record IN/OUT transaction for this item">📦 Txn</button></td>
+        </tr>`;
+      }).join('');
+    }
+
+    function highlightText(text, query) {
+      if (!text || !query) return escHtml(text);
+      const escaped = escHtml(text);
+      const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return escaped.replace(new RegExp(`(${q})`, 'gi'), '<span class="highlight">$1</span>');
+    }
+
+    function escHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    loadData();
+
+    // ===== Tab Switching =====
+    function switchStoreTab(tab) {
+      document.getElementById('inventoryTab').style.display = tab === 'inventory' ? '' : 'none';
+      document.getElementById('transactionsTab').style.display = tab === 'transactions' ? '' : 'none';
+      document.querySelectorAll('.txn-tab').forEach((t, i) => {
+        t.classList.toggle('active', (i === 0 && tab === 'inventory') || (i === 1 && tab === 'transactions'));
+      });
+      if (tab === 'transactions') loadTransactions();
+    }
+
+    // ===== Transaction Modal =====
+    let txnType = 'OUT';
+    let txnItemData = {};
+
+    function openTxnModal(itemName, itemLocation, itemQty) {
+      txnItemData = { name: itemName, location: itemLocation, qty: itemQty };
+      document.getElementById('txnItemName').value = itemName;
+      document.getElementById('txnItemInfo').innerHTML = `<strong>Location:</strong> ${escHtml(itemLocation)} &nbsp;|&nbsp; <strong>Available Qty:</strong> ${escHtml(itemQty) || 'N/A'}`;
+      document.getElementById('txnQty').value = '';
+      document.getElementById('txnEmpId').value = '';
+      document.getElementById('txnNotes').value = '';
+      setTxnType('OUT');
+      document.getElementById('txnModal').classList.add('open');
+    }
+
+    function closeTxnModal() {
+      document.getElementById('txnModal').classList.remove('open');
+    }
+
+    function setTxnType(type) {
+      txnType = type;
+      document.querySelectorAll('.txn-type-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.includes(type));
+      });
+    }
+
+    async function submitTransaction() {
+      const item_name = document.getElementById('txnItemName').value;
+      const quantity = document.getElementById('txnQty').value;
+      const employee_id = document.getElementById('txnEmpId').value.trim();
+      const notes = document.getElementById('txnNotes').value.trim();
+
+      if (!quantity || parseInt(quantity) < 1) { alert('Please enter a valid quantity'); return; }
+      if (!employee_id) { alert('Please enter Employee ID'); return; }
+
+      const btn = document.getElementById('txnSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+
+      try {
+        const res = await fetch('/api/store/transaction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_name,
+            item_location: txnItemData.location,
+            transaction_type: txnType,
+            quantity: parseInt(quantity),
+            employee_id,
+            notes
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || 'Transaction failed'); return; }
+
+        const empInfo = data.employee_name ? ` (${data.employee_name})` : '';
+        alert(`✅ Transaction recorded!\n\n${txnType === 'OUT' ? '📤 Issued' : '📥 Received'} ${quantity} × ${item_name}\nBy: ${employee_id}${empInfo}`);
+        closeTxnModal();
+      } catch (e) {
+        alert('Error submitting transaction: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Submit Transaction';
+      }
+    }
+
+    // ===== Transaction Log =====
+    async function loadTransactions() {
+      const type = document.getElementById('txnFilterType').value;
+      const item = document.getElementById('txnFilterItem').value.trim();
+      const empId = document.getElementById('txnFilterEmp').value.trim();
+
+      let url = '/api/store/transactions?';
+      if (type) url += `type=${encodeURIComponent(type)}&`;
+      if (item) url += `item=${encodeURIComponent(item)}&`;
+      if (empId) url += `employee_id=${encodeURIComponent(empId)}&`;
+
+      try {
+        const res = await fetch(url);
+        const rows = await res.json();
+        renderTransactionLog(rows);
+      } catch (e) {
+        document.getElementById('txnLogBody').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">Failed to load transactions</td></tr>';
+      }
+    }
+
+    function renderTransactionLog(rows) {
+      const tbody = document.getElementById('txnLogBody');
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#94a3b8;">📭 No transactions found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(r => {
+        const d = new Date(r.created_at + (r.created_at.includes('Z') ? '' : 'Z'));
+        const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        return `<tr>
+          <td style="white-space:nowrap;font-size:12px;">${dateStr}<br><span style="color:#94a3b8;">${timeStr}</span></td>
+          <td><span class="type-${r.transaction_type.toLowerCase()}">${r.transaction_type === 'IN' ? '📥 IN' : '📤 OUT'}</span></td>
+          <td style="max-width:250px;">${escHtml(r.item_name)}</td>
+          <td>${escHtml(r.item_location) || '—'}</td>
+          <td style="font-weight:700;">${r.quantity}</td>
+          <td><code>${escHtml(r.employee_id)}</code></td>
+          <td>${escHtml(r.employee_name) || '—'}</td>
+          <td>${escHtml(r.employee_department) || '—'}</td>
+          <td style="max-width:200px;font-size:12px;">${escHtml(r.notes) || '—'}</td>
+        </tr>`;
+      }).join('');
+    }
+  </script>
+</body>
+</html>

@@ -5,41 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alerts - Maintenance Management</title>
   <link rel="stylesheet" href="/css/style.css">
-</head>
+  <style>
+    .alert-tabs { display: flex; gap: 0; margin-bottom: 1.5rem; background: #f1f5f9; border-radius: 12px; padding: 4px; }
+    .alert-tab { flex: 1; padding: 12px; text-align: center; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; border-radius: 10px; color: #64748b; transition: all 0.2s; }
+    .alert-tab.active { background: white; color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    .alert-tab:hover:not(.active) { color: #334155; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .history-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: white; border-radius: 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); transition: background 0.15s; }
+    .history-item:hover { background: #f8fafc; }
+    .history-icon { font-size: 24px; flex-shrink: 0; width: 36px; text-align: center; margin-top: 2px; }
+    .history-body { flex: 1; min-width: 0; }
+    .history-title { font-weight: 600; font-size: 14px; color: #1e293b; margin-bottom: 4px; }
+    .history-msg { font-size: 13px; color: #64748b; line-height: 1.4; word-break: break-word; }
+    .history-time { font-size: 11px; color: #94a3b8; flex-shrink: 0; white-space: nowrap; margin-top: 2px; }
+    .history-type { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; margin-left: 8px; }
+    .history-type.abnormality { background: #fee2e2; color: #991b1b; }
+    .history-type.overdue { background: #fef3c7; color: #92400e; }
+    .history-type.missed { background: #fce7f3; color: #9d174d; }
+    .history-type.completed { background: #d1fae5; color: #065f46; }
+    .history-type.audit { background: #e0e7ff; color: #3730a3; }
+
+    .history-filter { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-chip { padding: 6px 14px; border-radius: 20px; border: 2px solid #e2e8f0; background: white; font-size: 12px; font-weight: 600; cursor: pointer; color: #64748b; transition: all 0.2s; }
+    .filter-chip.active { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+    .filter-chip:hover { border-color: #94a3b8; }
+  </style></head>
 <body>
   <nav class="navbar">
     <div class="nav-brand">
       🔧 Maintenance Management
     </div>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" title="Toggle navigation menu">☰</button>
     <div class="nav-links">
-      <a href="/admin.html" class="nav-link">⚙️ Equipment</a>
-      <a href="/reports.html" class="nav-link">📊 Reports</a>
-      <a href="/notifications.html" class="nav-link active">
-        🔔 Alerts
-        <span id="alertBadge" class="badge" style="display:none;">0</span>
-      </a>
-      <a href="#" id="logoutBtn" class="nav-link">🚪 Logout</a>
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exceptions">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulters">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse electrical store inventory">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link" title="Follow-up and compliance tracking">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View detailed maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link active" title="View alerts and notifications">🔔 Alerts</a>
+      <a href="#" id="logoutBtn" class="nav-link" title="Sign out of your account">🚪 Logout</a>
     </div>
   </nav>
 
   <div class="container">
     <!-- Stats Row -->
     <div class="stats-row" style="margin-bottom:1.5rem;">
-      <div class="stat-card stat-danger">
+      <div class="stat-card stat-danger" title="High-priority alerts requiring immediate attention">
         <div class="stat-icon">🚨</div>
         <div class="stat-info">
           <span class="stat-number" id="statCriticalAlerts">0</span>
           <span class="stat-label">Critical Alerts</span>
         </div>
       </div>
-      <div class="stat-card stat-warning">
+      <div class="stat-card stat-warning" title="Total alerts not yet read">
         <div class="stat-icon">⚠️</div>
         <div class="stat-info">
           <span class="stat-number" id="statTotalUnread">0</span>
           <span class="stat-label">Unread Alerts</span>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" title="Total number of alerts across all categories">
         <div class="stat-icon">📋</div>
         <div class="stat-info">
           <span class="stat-number" id="statTotalAlerts">0</span>
@@ -48,14 +79,40 @@
       </div>
     </div>
 
-    <div class="page-header">
-      <h2>🔔 All Alerts</h2>
-      <button class="btn btn-secondary" id="markAllReadBtn">
-        ✔️ Mark All Read
-      </button>
+    <!-- Tabs -->
+    <div class="alert-tabs">
+      <button class="alert-tab active" onclick="switchAlertTab('alerts', this)" title="View unread and active alerts">🔔 Active Alerts</button>
+      <button class="alert-tab" onclick="switchAlertTab('history', this)" title="View the full history of all past alerts and system events">📜 Alert History</button>
     </div>
 
-    <div id="notificationsList"></div>
+    <!-- Tab: Active Alerts -->
+    <div id="panel-alerts" class="tab-panel active">
+      <div class="page-header">
+        <h2>🔔 Active Alerts</h2>
+        <button class="btn btn-secondary" id="markAllReadBtn" title="Mark all active alerts as read">
+          ✔️ Mark All Read
+        </button>
+      </div>
+      <div id="notificationsList"></div>
+    </div>
+
+    <!-- Tab: Alert History -->
+    <div id="panel-history" class="tab-panel">
+      <div class="page-header">
+        <h2>📜 Alert History</h2>
+      </div>
+      <div class="history-filter">
+        <button class="filter-chip active" onclick="filterHistory('all', this)" title="Show all alert types">All</button>
+        <button class="filter-chip" onclick="filterHistory('abnormality', this)" title="Show only abnormality alerts">🚨 Abnormalities</button>
+        <button class="filter-chip" onclick="filterHistory('overdue', this)" title="Show only overdue task alerts">⏰ Overdue</button>
+        <button class="filter-chip" onclick="filterHistory('missed', this)" title="Show only missed task alerts">❌ Missed</button>
+        <button class="filter-chip" onclick="filterHistory('completed', this)" title="Show only task completion records">✅ Completed</button>
+        <button class="filter-chip" onclick="filterHistory('audit', this)" title="Show only audit log entries">📝 Audit Log</button>
+      </div>
+      <div id="historyList">
+        <div class="no-data"><div style="font-size:3rem;">⏳</div><p>Loading history...</p></div>
+      </div>
+    </div>
   </div>
 
   <script src="/js/notifications.js"></script>

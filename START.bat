@@ -55,3 +55,4 @@ if %errorlevel% neq 0 (
     echo [ERROR] Server crashed. Check the error above.
     pause
 )
+stop 

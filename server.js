@@ -3,16 +3,20 @@ const session = require('express-session');
 const helmet = require('helmet');
 const path = require('path');
 const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const os = require('os');
-const { initializeDatabase } = require('./database');
-const { loadEmployees, verifyEmployee } = require('./employees');
+const { initializeDatabase, queryAll, queryOne, runSql, getISTTimestamp } = require('./database');
+const { loadEmployees, verifyEmployee, getAllEmployees } = require('./employees');
+const { loadStoreList, getStoreItems, searchStore, getStoreLocations } = require('./store');
 
 const authRoutes = require('./routes/auth');
 const equipmentRoutes = require('./routes/equipment');
 const maintenanceRoutes = require('./routes/maintenance');
 const notificationRoutes = require('./routes/notifications');
 const auditRoutes = require('./routes/audit');
+const scheduleRoutes = require('./routes/schedules');
+const { runScheduledTasks } = require('./routes/schedules');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,6 +61,7 @@ app.use('/api/equipment', equipmentRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/schedules', scheduleRoutes);
 
 // Verify employee ID against Excel data
 app.post('/api/verify-employee', (req, res) => {
@@ -74,6 +79,79 @@ app.post('/api/verify-employee', (req, res) => {
   req.session.role = 'employee';
 
   res.json(emp);
+});
+
+// Store inventory API
+app.get('/api/store', (req, res) => {
+  const query = req.query.q || '';
+  const location = req.query.location || '';
+  let items = query ? searchStore(query) : getStoreItems();
+  if (location) items = items.filter(i => i.location === location);
+  res.json({ items, total: items.length });
+});
+
+app.get('/api/store/locations', (req, res) => {
+  res.json(getStoreLocations());
+});
+
+// Store Transaction: Submit IN/OUT
+app.post('/api/store/transaction', (req, res) => {
+  const { item_name, item_location, transaction_type, quantity, employee_id, notes } = req.body;
+  if (!item_name || !transaction_type || !quantity || !employee_id) {
+    return res.status(400).json({ error: 'Item, type, quantity, and employee ID are required' });
+  }
+  if (!['IN', 'OUT'].includes(transaction_type)) {
+    return res.status(400).json({ error: 'Transaction type must be IN or OUT' });
+  }
+  const qty = parseInt(quantity);
+  if (isNaN(qty) || qty < 1) {
+    return res.status(400).json({ error: 'Quantity must be a positive number' });
+  }
+
+  // Verify employee
+  const emp = verifyEmployee(employee_id);
+  const empName = emp ? emp.fullName : null;
+  const empDept = emp ? emp.department : null;
+
+  const id = uuidv4();
+  runSql(
+    `INSERT INTO store_transactions (id, item_name, item_location, transaction_type, quantity, employee_id, employee_name, employee_department, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, item_name, item_location || '', transaction_type, qty, employee_id, empName, empDept, notes || '', getISTTimestamp()]
+  );
+  const { saveDb } = require('./database');
+  saveDb();
+
+  res.json({ success: true, id, employee_name: empName });
+});
+
+// Store Transaction: Get log
+app.get('/api/store/transactions', (req, res) => {
+  const { item, type, employee_id, limit: lim } = req.query;
+  let sql = 'SELECT * FROM store_transactions WHERE 1=1';
+  const params = [];
+  if (item) { sql += ' AND item_name LIKE ?'; params.push(`%${item}%`); }
+  if (type) { sql += ' AND transaction_type = ?'; params.push(type); }
+  if (employee_id) { sql += ' AND employee_id = ?'; params.push(employee_id); }
+  sql += ' ORDER BY created_at DESC';
+  const maxRows = parseInt(lim) || 500;
+  sql += ' LIMIT ?';
+  params.push(maxRows);
+  const rows = queryAll(sql, params);
+  res.json(rows);
+});
+
+// Store Transaction: Get summary for an item (net stock change)
+app.get('/api/store/transactions/summary', (req, res) => {
+  const { item_name } = req.query;
+  if (!item_name) return res.status(400).json({ error: 'item_name required' });
+  const rows = queryAll(
+    `SELECT transaction_type, SUM(quantity) as total FROM store_transactions WHERE item_name = ? GROUP BY transaction_type`,
+    [item_name]
+  );
+  const inQty = (rows.find(r => r.transaction_type === 'IN') || {}).total || 0;
+  const outQty = (rows.find(r => r.transaction_type === 'OUT') || {}).total || 0;
+  res.json({ item_name, total_in: inQty, total_out: outQty, net: inQty - outQty });
 });
 
 // Serve maintenance page for QR scan links
@@ -102,6 +180,7 @@ function getLanIp() {
 // Initialize database then start server
 initializeDatabase().then(async () => {
   await loadEmployees();
+  await loadStoreList();
   app.listen(PORT, '0.0.0.0', () => {
     const lanIp = getLanIp();
     console.log(`Maintenance Management System running at:`);
@@ -110,6 +189,12 @@ initializeDatabase().then(async () => {
     console.log(`Admin login: admin / admin123`);
     console.log(`Engineers: Scan QR → Enter Employee ID from Excel`);
     console.log(`\nUse the Network URL for mobile QR scanning.`);
+
+    // Run scheduled tasks on startup and every hour
+    try { runScheduledTasks(); } catch (e) { console.error('Initial schedule run error:', e.message); }
+    setInterval(() => {
+      try { runScheduledTasks(); } catch (e) { console.error('Scheduled tasks error:', e.message); }
+    }, 60 * 60 * 1000); // Every hour
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);

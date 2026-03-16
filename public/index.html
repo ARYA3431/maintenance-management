@@ -17,13 +17,13 @@
       <form id="loginForm">
         <div class="form-group">
           <label for="username">👤 Username</label>
-          <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">
+          <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username" title="Enter your admin username to sign in">
         </div>
         <div class="form-group">
           <label for="password">🔒 Password</label>
-          <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password">
+          <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password" title="Enter your account password">
         </div>
-        <button type="submit" class="btn btn-primary btn-full btn-lg" id="loginBtn">
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="loginBtn" title="Sign in to access the admin dashboard">
           ➜ Sign In
         </button>
         <div id="loginError" class="error-message" style="display:none;"></div>
@@ -31,7 +31,7 @@
       <div class="login-footer">
         <p style="margin-bottom:0.5rem;"><strong>Admin Login</strong></p>
         <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
-          <span class="tag tag-normal" style="cursor:pointer;padding:0.3rem 0.7rem;" onclick="fillDemo('admin','admin123')">👤 Demo Admin</span>
+          <span class="tag tag-normal" style="cursor:pointer;padding:0.3rem 0.7rem;" onclick="fillDemo('admin','admin123')" title="Click to auto-fill demo admin credentials">👤 Demo Admin</span>
         </div>
         <p class="muted" style="margin-top:0.75rem;font-size:0.85rem;">Engineers: Scan the QR code directly — no login needed.</p>
       </div>

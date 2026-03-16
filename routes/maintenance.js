@@ -31,11 +31,14 @@ function logAudit(userId, userName, action, targetType, targetId, details, ip) {
 
 // Submit maintenance record
 router.post('/submit', requireEmployee, (req, res) => {
-  const { equipment_id, values, notes, user_lat, user_lng, accuracy, scan_session_id, photo } = req.body;
+  const { equipment_id, task_type, values, notes, user_lat, user_lng, accuracy, scan_session_id, photo,
+          work_done, parts_replaced, time_spent_minutes, corrective_action, abnormal_reason } = req.body;
 
   if (!equipment_id || !values) {
     return res.status(400).json({ error: 'Equipment ID and values are required' });
   }
+
+  const validTaskType = (task_type === 'inspection' || task_type === 'maintenance') ? task_type : 'inspection';
 
   const equipment = queryOne('SELECT * FROM equipment WHERE id = ?', [equipment_id]);
   if (!equipment) return res.status(404).json({ error: 'Equipment not found' });
@@ -73,18 +76,24 @@ router.post('/submit', requireEmployee, (req, res) => {
   // Calculate distance and verification status
   let distance = null;
   let verificationStatus = 'unverified';
+  const forceSubmit = req.body.force_submit === true;
 
   if (user_lat != null && user_lng != null) {
     distance = getDistanceMeters(equipment.latitude, equipment.longitude, user_lat, user_lng);
 
     if (distance > equipment.radius_meters) {
-      return res.status(403).json({
-        error: 'You are not at the equipment location. Please scan the QR code at the equipment site.',
-        distance: Math.round(distance),
-        allowed_radius: equipment.radius_meters
-      });
+      if (!forceSubmit) {
+        return res.status(403).json({
+          error: `You are ${Math.round(distance)}m away from the equipment (allowed: ${equipment.radius_meters}m). Please go to the equipment location, or tap "Submit Always" to submit anyway.`,
+          distance: Math.round(distance),
+          allowed_radius: equipment.radius_meters
+        });
+      }
+      // Force submit — mark as override so admin can see it
+      verificationStatus = 'override';
+    } else {
+      verificationStatus = 'verified';
     }
-    verificationStatus = 'verified';
   }
 
   // Save photo to disk if provided
@@ -151,12 +160,14 @@ router.post('/submit', requireEmployee, (req, res) => {
   const istNow = getISTTimestamp();
 
   runSql(
-    `INSERT INTO maintenance_records (id, equipment_id, employee_id, employee_name, employee_department, has_abnormality, notes, latitude, longitude, accuracy, distance_meters, scan_session_id, verification_status, photo_path, status, submitted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO maintenance_records (id, equipment_id, employee_id, employee_name, employee_department, has_abnormality, notes, latitude, longitude, accuracy, distance_meters, scan_session_id, verification_status, photo_path, status, task_type, work_done, parts_replaced, time_spent_minutes, corrective_action, abnormal_reason, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [recordId, equipment_id, employeeId, employeeName, employeeDept, hasAbnormality ? 1 : 0, notes || '',
      user_lat, user_lng, accuracy || null,
      distance != null ? Math.round(distance) : null,
-     scan_session_id || null, verificationStatus, photoPath, 'pending', istNow]
+     scan_session_id || null, verificationStatus, photoPath, 'pending', validTaskType,
+     work_done || null, parts_replaced || null, time_spent_minutes || null,
+     corrective_action || null, abnormal_reason || null, istNow]
   );
 
   for (const val of processedValues) {
@@ -164,6 +175,90 @@ router.post('/submit', requireEmployee, (req, res) => {
       `INSERT INTO maintenance_values (id, record_id, field_id, value, is_abnormal) VALUES (?, ?, ?, ?, ?)`,
       [uuidv4(), recordId, val.field_id, val.value || '', val.is_abnormal]
     );
+  }
+
+  // Auto-link to nearest pending/overdue schedule instance for this equipment and task_type
+  const pendingInstance = queryOne(`
+    SELECT si.id FROM schedule_instances si
+    JOIN schedules s ON si.schedule_id = s.id
+    WHERE si.equipment_id = ? AND si.status IN ('pending', 'overdue')
+      AND s.is_active = 1 AND s.task_type = ?
+    ORDER BY si.due_date ASC LIMIT 1
+  `, [equipment_id, validTaskType]);
+
+  if (pendingInstance) {
+    runSql(
+      "UPDATE schedule_instances SET status = 'completed', completed_by = ?, completed_at = ?, record_id = ? WHERE id = ?",
+      [employeeId, istNow, recordId, pendingInstance.id]
+    );
+  }
+
+  // === Create findings for abnormal values ===
+  let overallSeverity = 'normal';
+  if (hasAbnormality) {
+    for (const val of processedValues) {
+      if (!val.is_abnormal) continue;
+      const fieldDef = fieldMap[val.field_id];
+      if (!fieldDef) continue;
+
+      // Determine severity
+      let severity = 'warning';
+      let exceptionClass = 'abnormal_but_running';
+      if (fieldDef.is_critical) {
+        severity = 'critical';
+        exceptionClass = 'urgent_maintenance';
+      }
+
+      // Check for repeats — same field + same equipment with open findings
+      const existingOpen = queryOne(
+        `SELECT id, repeat_count FROM findings WHERE equipment_id = ? AND field_id = ? AND status IN ('open','acknowledged','in_progress') ORDER BY created_at DESC LIMIT 1`,
+        [equipment_id, val.field_id]
+      );
+
+      let isRepeat = 0;
+      let repeatCount = 0;
+      let parentFindingId = null;
+      if (existingOpen) {
+        isRepeat = 1;
+        repeatCount = (existingOpen.repeat_count || 0) + 1;
+        parentFindingId = existingOpen.id;
+        // Escalate severity if repeated
+        if (repeatCount >= 3) { severity = 'emergency'; exceptionClass = 'immediate_shutdown'; }
+        else if (repeatCount >= 2) { severity = 'critical'; exceptionClass = 'urgent_maintenance'; }
+        // Update parent repeat count
+        runSql('UPDATE findings SET repeat_count = ? WHERE id = ?', [repeatCount, existingOpen.id]);
+      }
+
+      // Historical repeat detection — same field abnormal in last 30 days
+      if (!isRepeat) {
+        const recentCount = queryOne(
+          `SELECT COUNT(*) as cnt FROM findings WHERE equipment_id = ? AND field_id = ? AND created_at >= datetime('now', '-30 days')`,
+          [equipment_id, val.field_id]
+        );
+        if (recentCount && recentCount.cnt >= 2) {
+          isRepeat = 1;
+          repeatCount = recentCount.cnt;
+        }
+      }
+
+      const normalRange = (fieldDef.min_value != null || fieldDef.max_value != null)
+        ? `${fieldDef.min_value ?? '—'} to ${fieldDef.max_value ?? '—'}` : null;
+
+      runSql(
+        `INSERT INTO findings (id, record_id, equipment_id, field_id, field_name, reported_value, normal_range, severity, exception_class, status, assigned_department, reported_by, reported_by_name, is_repeat, repeat_count, parent_finding_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+        [uuidv4(), recordId, equipment_id, val.field_id, fieldDef.field_name, val.value, normalRange,
+         severity, exceptionClass, employeeDept, employeeId, employeeName,
+         isRepeat, repeatCount, parentFindingId, istNow]
+      );
+
+      if (severity === 'critical' || severity === 'emergency') overallSeverity = severity;
+      else if (severity === 'warning' && overallSeverity === 'normal') overallSeverity = 'warning';
+    }
+
+    // Update record with overall severity and critical flag
+    runSql('UPDATE maintenance_records SET severity = ?, has_critical_abnormality = ? WHERE id = ?',
+      [overallSeverity, hasCriticalAbnormality ? 1 : 0, recordId]);
   }
 
   // Notify admin
@@ -214,6 +309,7 @@ router.post('/submit', requireEmployee, (req, res) => {
     'maintenance_record', recordId,
     JSON.stringify({
       equipment: equipment.name,
+      task_type: validTaskType,
       verification: verificationStatus,
       distance: distance != null ? Math.round(distance) : null,
       has_abnormality: hasAbnormality,
@@ -352,25 +448,59 @@ router.get('/reports/:id', requireAuth, requireAdmin, (req, res) => {
 
 // Update record status (workflow)
 router.put('/records/:id/status', requireAuth, requireAdmin, (req, res) => {
-  const { status } = req.body;
-  const validStatuses = ['pending', 'reviewed', 'resolved'];
+  const { status, review_notes } = req.body;
+  const validStatuses = ['pending', 'reviewed', 'resolved', 'in_progress', 'blocked', 'reopened', 'closed'];
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Invalid status. Must be: pending, reviewed, or resolved' });
+    return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
   }
+
+  // Workflow transitions validation
+  const validTransitions = {
+    'pending': ['reviewed', 'in_progress'],
+    'reviewed': ['resolved', 'reopened', 'closed'],
+    'in_progress': ['reviewed', 'blocked'],
+    'blocked': ['in_progress', 'reviewed'],
+    'resolved': ['closed', 'reopened'],
+    'reopened': ['in_progress', 'reviewed'],
+    'closed': ['reopened']
+  };
 
   const record = queryOne('SELECT * FROM maintenance_records WHERE id = ?', [req.params.id]);
   if (!record) return res.status(404).json({ error: 'Record not found' });
 
-  runSql('UPDATE maintenance_records SET status = ? WHERE id = ?', [status, req.params.id]);
+  const currentStatus = record.status || 'pending';
+  const allowed = validTransitions[currentStatus] || validStatuses;
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: `Cannot transition from '${currentStatus}' to '${status}'. Allowed: ${allowed.join(', ')}` });
+  }
+
+  const istNow = getISTTimestamp();
+  let updateSql = 'UPDATE maintenance_records SET status = ?';
+  const params = [status];
+
+  if (status === 'reviewed') {
+    updateSql += ', reviewed_by = ?, reviewed_at = ?, review_notes = ?';
+    params.push(req.session.userId || req.session.employeeId, istNow, review_notes || null);
+  }
+
+  updateSql += ' WHERE id = ?';
+  params.push(req.params.id);
+  runSql(updateSql, params);
+
+  // Log the review action
+  runSql(`INSERT INTO review_actions (id, record_id, action_type, action_by, action_by_name, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [uuidv4(), req.params.id, status === 'reviewed' ? 'approve' : status === 'reopened' ? 'reopen' : status === 'closed' ? 'close' : 'comment',
+     req.session.userId || req.session.employeeId, req.session.fullName || 'Admin', review_notes || null, istNow]);
 
   logAudit(req.session.userId, req.session.fullName, 'update_status',
     'maintenance_record', req.params.id,
-    JSON.stringify({ old_status: record.status, new_status: status }),
+    JSON.stringify({ old_status: currentStatus, new_status: status, review_notes }),
     req.ip
   );
 
   saveDb();
-  res.json({ message: `Status updated to ${status}` });
+  res.json({ message: `Status updated from ${currentStatus} to ${status}` });
 });
 
 // Get filter options (engineers, equipment list)
@@ -535,6 +665,393 @@ router.get('/stats', requireAuth, requireAdmin, (req, res) => {
     unverified: unverifiedRecords?.count || 0,
     today: todayRecords?.count || 0
   });
+});
+
+// ===== FINDINGS / ABNORMALITY TRACKER =====
+
+// Get all findings with filters
+router.get('/findings', requireAuth, requireAdmin, (req, res) => {
+  const { equipment_id, status, severity, exception_class, is_repeat } = req.query;
+
+  let sql = `
+    SELECT f.*, e.name as equipment_name, e.location_name, e.is_critical as eq_is_critical
+    FROM findings f
+    JOIN equipment e ON f.equipment_id = e.id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (equipment_id) { sql += ' AND f.equipment_id = ?'; params.push(equipment_id); }
+  if (status) { sql += ' AND f.status = ?'; params.push(status); }
+  if (severity) { sql += ' AND f.severity = ?'; params.push(severity); }
+  if (exception_class) { sql += ' AND f.exception_class = ?'; params.push(exception_class); }
+  if (is_repeat === '1') { sql += ' AND f.is_repeat = 1'; }
+
+  sql += ' ORDER BY CASE f.severity WHEN \'emergency\' THEN 0 WHEN \'critical\' THEN 1 WHEN \'warning\' THEN 2 ELSE 3 END, f.created_at DESC LIMIT 500';
+
+  res.json(queryAll(sql, params));
+});
+
+// Get findings stats
+router.get('/findings/stats', requireAuth, requireAdmin, (req, res) => {
+  const open = queryOne("SELECT COUNT(*) as cnt FROM findings WHERE status IN ('open','acknowledged','in_progress')") || { cnt: 0 };
+  const resolved = queryOne("SELECT COUNT(*) as cnt FROM findings WHERE status IN ('resolved','closed')") || { cnt: 0 };
+  const critical = queryOne("SELECT COUNT(*) as cnt FROM findings WHERE severity IN ('critical','emergency') AND status IN ('open','acknowledged','in_progress')") || { cnt: 0 };
+  const repeats = queryOne("SELECT COUNT(*) as cnt FROM findings WHERE is_repeat = 1 AND status IN ('open','acknowledged','in_progress')") || { cnt: 0 };
+
+  // By exception class
+  const byClass = queryAll(`
+    SELECT exception_class, COUNT(*) as cnt
+    FROM findings WHERE status IN ('open','acknowledged','in_progress')
+    GROUP BY exception_class
+  `);
+
+  // By equipment (top offenders)
+  const byEquipment = queryAll(`
+    SELECT f.equipment_id, e.name as equipment_name, COUNT(*) as cnt,
+      SUM(CASE WHEN f.severity IN ('critical','emergency') THEN 1 ELSE 0 END) as critical_cnt
+    FROM findings f JOIN equipment e ON f.equipment_id = e.id
+    WHERE f.status IN ('open','acknowledged','in_progress')
+    GROUP BY f.equipment_id ORDER BY cnt DESC LIMIT 10
+  `);
+
+  res.json({
+    open: open.cnt, resolved: resolved.cnt, critical: critical.cnt, repeats: repeats.cnt,
+    by_exception_class: byClass, by_equipment: byEquipment
+  });
+});
+
+// Update finding status
+router.put('/findings/:id/status', requireAuth, requireAdmin, (req, res) => {
+  const { status, notes, corrective_action, root_cause, exception_class, assigned_to } = req.body;
+  const validStatuses = ['open', 'acknowledged', 'in_progress', 'resolved', 'closed', 'deferred'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Must be: ${validStatuses.join(', ')}` });
+  }
+
+  const finding = queryOne('SELECT * FROM findings WHERE id = ?', [req.params.id]);
+  if (!finding) return res.status(404).json({ error: 'Finding not found' });
+
+  const istNow = getISTTimestamp();
+  let updateParts = ['status = ?'];
+  const params = [status];
+
+  if (status === 'acknowledged') {
+    updateParts.push('acknowledged_by = ?', 'acknowledged_at = ?');
+    params.push(req.session.fullName || req.session.userId, istNow);
+  }
+  if (status === 'resolved' || status === 'closed') {
+    updateParts.push('resolved_by = ?', 'resolved_at = ?', 'resolution_notes = ?');
+    params.push(req.session.fullName || req.session.userId, istNow, notes || null);
+  }
+  if (corrective_action) { updateParts.push('corrective_action = ?'); params.push(corrective_action); }
+  if (root_cause) { updateParts.push('root_cause = ?'); params.push(root_cause); }
+  if (exception_class) { updateParts.push('exception_class = ?'); params.push(exception_class); }
+  if (assigned_to) { updateParts.push('assigned_to = ?'); params.push(assigned_to); }
+
+  params.push(req.params.id);
+  runSql(`UPDATE findings SET ${updateParts.join(', ')} WHERE id = ?`, params);
+
+  // Log review action
+  runSql(`INSERT INTO review_actions (id, finding_id, action_type, action_by, action_by_name, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [uuidv4(), req.params.id, status === 'resolved' ? 'approve' : status === 'closed' ? 'close' : 'comment',
+     req.session.userId || req.session.employeeId, req.session.fullName || 'Admin', notes || null, istNow]);
+
+  logAudit(req.session.userId, req.session.fullName, 'update_finding',
+    'finding', req.params.id,
+    JSON.stringify({ old_status: finding.status, new_status: status, corrective_action, root_cause }),
+    req.ip
+  );
+  saveDb();
+  res.json({ message: `Finding updated to ${status}` });
+});
+
+// ===== TREND ANALYSIS =====
+
+// Get reading trends for a specific equipment+field
+router.get('/trends/:equipmentId', requireAuth, requireAdmin, (req, res) => {
+  const { field_id, days } = req.query;
+  const daysBack = parseInt(days) || 90;
+
+  let sql = `
+    SELECT mv.value, mv.is_abnormal, mv.field_id,
+           mf.field_name, mf.field_type, mf.min_value, mf.max_value, mf.is_critical,
+           mr.submitted_at, mr.employee_name
+    FROM maintenance_values mv
+    JOIN maintenance_records mr ON mv.record_id = mr.id
+    JOIN maintenance_fields mf ON mv.field_id = mf.id
+    WHERE mr.equipment_id = ? AND mf.field_type = 'number'
+      AND mr.submitted_at >= datetime('now', '-${daysBack} days')
+  `;
+  const params = [req.params.equipmentId];
+
+  if (field_id) { sql += ' AND mv.field_id = ?'; params.push(field_id); }
+  sql += ' ORDER BY mf.field_name, mr.submitted_at ASC';
+
+  const readings = queryAll(sql, params);
+
+  // Group by field
+  const grouped = {};
+  for (const r of readings) {
+    if (!grouped[r.field_id]) {
+      grouped[r.field_id] = {
+        field_id: r.field_id,
+        field_name: r.field_name,
+        min_value: r.min_value,
+        max_value: r.max_value,
+        is_critical: r.is_critical,
+        readings: []
+      };
+    }
+    grouped[r.field_id].readings.push({
+      value: parseFloat(r.value),
+      is_abnormal: r.is_abnormal,
+      date: r.submitted_at,
+      engineer: r.employee_name
+    });
+  }
+
+  // Calculate trend info
+  const trends = Object.values(grouped).map(g => {
+    const values = g.readings.map(r => r.value).filter(v => !isNaN(v));
+    const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    const abnormalCount = g.readings.filter(r => r.is_abnormal).length;
+    const totalCount = g.readings.length;
+
+    // Simple trend direction: compare last 3 vs first 3
+    let trendDirection = 'stable';
+    if (values.length >= 6) {
+      const firstAvg = values.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+      const lastAvg = values.slice(-3).reduce((a, b) => a + b, 0) / 3;
+      const pctChange = ((lastAvg - firstAvg) / (firstAvg || 1)) * 100;
+      if (pctChange > 10) trendDirection = 'increasing';
+      else if (pctChange < -10) trendDirection = 'decreasing';
+    }
+
+    return {
+      ...g,
+      average: Math.round(avg * 100) / 100,
+      abnormal_count: abnormalCount,
+      total_readings: totalCount,
+      abnormal_rate: totalCount > 0 ? Math.round((abnormalCount / totalCount) * 100) : 0,
+      trend_direction: trendDirection
+    };
+  });
+
+  res.json(trends);
+});
+
+// Repeated abnormality report — fields with recurring problems
+router.get('/repeated-abnormalities', requireAuth, requireAdmin, (req, res) => {
+  const repeats = queryAll(`
+    SELECT f.equipment_id, e.name as equipment_name, e.location_name,
+           f.field_id, f.field_name, f.severity,
+           COUNT(*) as occurrence_count,
+           MAX(f.created_at) as last_occurrence,
+           MIN(f.created_at) as first_occurrence,
+           SUM(CASE WHEN f.status IN ('open','acknowledged','in_progress') THEN 1 ELSE 0 END) as still_open
+    FROM findings f
+    JOIN equipment e ON f.equipment_id = e.id
+    GROUP BY f.equipment_id, f.field_id
+    HAVING COUNT(*) >= 2
+    ORDER BY occurrence_count DESC, last_occurrence DESC
+  `);
+  res.json(repeats);
+});
+
+// ===== SUPERVISOR REVIEW QUEUE =====
+
+// Get pending reviews (records + findings needing review)
+router.get('/review-queue', requireAuth, requireAdmin, (req, res) => {
+  // Pending maintenance records
+  const pendingRecords = queryAll(`
+    SELECT mr.*, e.name as equipment_name, e.location_name, e.is_critical as eq_is_critical
+    FROM maintenance_records mr
+    JOIN equipment e ON mr.equipment_id = e.id
+    WHERE mr.status = 'pending' AND mr.has_abnormality = 1
+    ORDER BY mr.has_critical_abnormality DESC, mr.submitted_at DESC
+    LIMIT 100
+  `);
+
+  // Open findings needing action
+  const openFindings = queryAll(`
+    SELECT f.*, e.name as equipment_name, e.location_name
+    FROM findings f
+    JOIN equipment e ON f.equipment_id = e.id
+    WHERE f.status = 'open'
+    ORDER BY CASE f.severity WHEN 'emergency' THEN 0 WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, f.created_at DESC
+    LIMIT 100
+  `);
+
+  // Recent review actions
+  const recentActions = queryAll(`
+    SELECT ra.*, mr.employee_name as record_engineer
+    FROM review_actions ra
+    LEFT JOIN maintenance_records mr ON ra.record_id = mr.id
+    ORDER BY ra.created_at DESC LIMIT 20
+  `);
+
+  res.json({
+    pending_records: pendingRecords,
+    open_findings: openFindings,
+    recent_actions: recentActions
+  });
+});
+
+// Batch review action
+router.post('/review-batch', requireAuth, requireAdmin, (req, res) => {
+  const { record_ids, action, notes } = req.body;
+  if (!record_ids || !Array.isArray(record_ids) || !action) {
+    return res.status(400).json({ error: 'record_ids (array) and action are required' });
+  }
+
+  const validActions = ['reviewed', 'resolved', 'closed'];
+  if (!validActions.includes(action)) {
+    return res.status(400).json({ error: `Invalid action. Must be: ${validActions.join(', ')}` });
+  }
+
+  const istNow = getISTTimestamp();
+  let count = 0;
+  for (const id of record_ids) {
+    const record = queryOne('SELECT id, status FROM maintenance_records WHERE id = ?', [id]);
+    if (!record) continue;
+
+    let updateSql = 'UPDATE maintenance_records SET status = ?';
+    const params = [action];
+    if (action === 'reviewed') {
+      updateSql += ', reviewed_by = ?, reviewed_at = ?, review_notes = ?';
+      params.push(req.session.userId, istNow, notes || null);
+    }
+    updateSql += ' WHERE id = ?';
+    params.push(id);
+    runSql(updateSql, params);
+
+    runSql(`INSERT INTO review_actions (id, record_id, action_type, action_by, action_by_name, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [uuidv4(), id, action === 'reviewed' ? 'approve' : action,
+       req.session.userId, req.session.fullName || 'Admin', notes || null, istNow]);
+    count++;
+  }
+  saveDb();
+  res.json({ message: `${count} records updated to ${action}` });
+});
+
+// ===== ESCALATION RULES MANAGEMENT =====
+
+// Get all escalation rules
+router.get('/escalation-rules', requireAuth, requireAdmin, (req, res) => {
+  const rules = queryAll(`
+    SELECT er.*, e.name as equipment_name
+    FROM escalation_rules er
+    LEFT JOIN equipment e ON er.equipment_id = e.id
+    ORDER BY er.equipment_id IS NULL, er.severity
+  `);
+  res.json(rules);
+});
+
+// Create/update escalation rule
+router.post('/escalation-rules', requireAuth, requireAdmin, (req, res) => {
+  const { equipment_id, severity, hours_to_supervisor, hours_to_manager, hours_to_plant_head, auto_escalate, notify_on_create } = req.body;
+
+  // Check if rule exists for this equipment+severity combo
+  const existing = queryOne(
+    'SELECT id FROM escalation_rules WHERE (equipment_id = ? OR (equipment_id IS NULL AND ? IS NULL)) AND severity = ?',
+    [equipment_id || null, equipment_id || null, severity || 'normal']
+  );
+
+  if (existing) {
+    runSql(`UPDATE escalation_rules SET hours_to_supervisor = ?, hours_to_manager = ?, hours_to_plant_head = ?, auto_escalate = ?, notify_on_create = ? WHERE id = ?`,
+      [hours_to_supervisor || 24, hours_to_manager || 48, hours_to_plant_head || 72,
+       auto_escalate != null ? auto_escalate : 1, notify_on_create || 0, existing.id]);
+    saveDb();
+    return res.json({ message: 'Escalation rule updated', id: existing.id });
+  }
+
+  const id = uuidv4();
+  runSql(`INSERT INTO escalation_rules (id, equipment_id, severity, hours_to_supervisor, hours_to_manager, hours_to_plant_head, auto_escalate, notify_on_create, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, equipment_id || null, severity || 'normal', hours_to_supervisor || 24, hours_to_manager || 48,
+     hours_to_plant_head || 72, auto_escalate != null ? auto_escalate : 1, notify_on_create || 0, getISTTimestamp()]);
+  saveDb();
+  res.json({ message: 'Escalation rule created', id });
+});
+
+// ===== ENHANCED DEFAULTER DASHBOARD =====
+
+// Detailed defaulters by department
+router.get('/defaulters/by-department', requireAuth, requireAdmin, (req, res) => {
+  const result = queryAll(`
+    SELECT
+      COALESCE(si.assigned_department, mr.employee_department, 'Unassigned') as department,
+      COUNT(DISTINCT si.id) as total_tasks,
+      SUM(CASE WHEN si.status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN si.status = 'overdue' THEN 1 ELSE 0 END) as overdue,
+      SUM(CASE WHEN si.status = 'missed' THEN 1 ELSE 0 END) as missed,
+      COUNT(DISTINCT CASE WHEN si.status IN ('overdue','missed') THEN si.assigned_employee_id END) as defaulter_count
+    FROM schedule_instances si
+    LEFT JOIN maintenance_records mr ON si.record_id = mr.id
+    JOIN schedules s ON si.schedule_id = s.id
+    WHERE s.is_active = 1
+    GROUP BY department
+    ORDER BY (overdue + missed) DESC
+  `);
+  res.json(result);
+});
+
+// Detailed defaulters by equipment/area
+router.get('/defaulters/by-equipment', requireAuth, requireAdmin, (req, res) => {
+  const result = queryAll(`
+    SELECT
+      e.id as equipment_id, e.name as equipment_name, e.location_name, e.is_critical,
+      COUNT(si.id) as total_tasks,
+      SUM(CASE WHEN si.status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN si.status = 'overdue' THEN 1 ELSE 0 END) as overdue,
+      SUM(CASE WHEN si.status = 'missed' THEN 1 ELSE 0 END) as missed,
+      ROUND(SUM(CASE WHEN si.status = 'completed' THEN 1.0 ELSE 0 END) / MAX(COUNT(si.id), 1) * 100) as compliance_pct
+    FROM schedule_instances si
+    JOIN equipment e ON si.equipment_id = e.id
+    JOIN schedules s ON si.schedule_id = s.id
+    WHERE s.is_active = 1
+    GROUP BY e.id
+    ORDER BY compliance_pct ASC
+  `);
+  res.json(result);
+});
+
+// Detailed defaulters per person with drill-down
+router.get('/defaulters/by-person', requireAuth, requireAdmin, (req, res) => {
+  const { employee_id } = req.query;
+
+  if (employee_id) {
+    // Drill-down: specific person's tasks
+    const tasks = queryAll(`
+      SELECT si.*, e.name as equipment_name, e.location_name, s.frequency, s.task_type
+      FROM schedule_instances si
+      JOIN equipment e ON si.equipment_id = e.id
+      JOIN schedules s ON si.schedule_id = s.id
+      WHERE si.assigned_employee_id = ? AND si.status IN ('overdue','missed')
+      ORDER BY si.due_date ASC
+    `, [employee_id]);
+    return res.json({ employee_id, tasks });
+  }
+
+  const result = queryAll(`
+    SELECT
+      COALESCE(si.assigned_employee_id, 'Unassigned') as employee_id,
+      si.assigned_department as department,
+      COUNT(si.id) as total_tasks,
+      SUM(CASE WHEN si.status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN si.status = 'overdue' THEN 1 ELSE 0 END) as overdue,
+      SUM(CASE WHEN si.status = 'missed' THEN 1 ELSE 0 END) as missed,
+      ROUND(SUM(CASE WHEN si.status = 'completed' THEN 1.0 ELSE 0 END) / MAX(COUNT(si.id), 1) * 100) as compliance_pct,
+      MAX(CASE WHEN si.status = 'completed' THEN si.completed_at END) as last_completed
+    FROM schedule_instances si
+    JOIN schedules s ON si.schedule_id = s.id
+    WHERE s.is_active = 1 AND si.assigned_employee_id IS NOT NULL
+    GROUP BY si.assigned_employee_id
+    ORDER BY compliance_pct ASC
+  `);
+  res.json(result);
 });
 
 // Haversine formula

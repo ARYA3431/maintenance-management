@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Follow-up Tracking - Maintenance Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔧 Maintenance Management</div>
+    <button class="nav-toggle" title="Toggle navigation menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    <div class="nav-links">
+      <a href="/admin.html" class="nav-link" title="Manage equipment and QR codes">⚙️ Equipment</a>
+      <a href="/schedules.html" class="nav-link" title="View and create maintenance schedules">📅 Schedules</a>
+      <a href="/review.html" class="nav-link" title="Review pending reports and findings">🔍 Review</a>
+      <a href="/findings.html" class="nav-link" title="Track abnormalities and exception classes">⚠️ Findings</a>
+      <a href="/trends.html" class="nav-link" title="Analyze equipment reading trends over time">📈 Trends</a>
+      <a href="/defaulters.html" class="nav-link" title="View non-compliance and defaulter reports">📊 Defaulters</a>
+      <a href="/store.html" class="nav-link" title="Browse store inventory and locations">🏪 Store</a>
+      <a href="/tracking.html" class="nav-link active" title="Track follow-up tasks and compliance">📋 Tracking</a>
+      <a href="/reports.html" class="nav-link" title="View and export maintenance reports">📋 Reports</a>
+      <a href="/notifications.html" class="nav-link" title="View alerts and notification history">🔔 Alerts</a>
+      <a href="#" id="logoutBtn" class="nav-link" title="Sign out of your account">🚪 Logout</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="welcome-banner">
+      <div>
+        <h1>📊 Follow-up & Compliance Tracking</h1>
+        <p>Track pending tasks, identify defaulters, and ensure accountability.</p>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>Task Type</label>
+        <select id="filterTaskType" onchange="applyFilters()" title="Filter tasks by inspection or maintenance type">
+          <option value="">All Types</option>
+          <option value="inspection">🔍 Inspection</option>
+          <option value="maintenance">🔧 Maintenance</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="filterStatus" onchange="applyFilters()" title="Filter by task status — pending, overdue, or missed">
+          <option value="">All Statuses</option>
+          <option value="pending">⏳ Pending</option>
+          <option value="overdue">⚠️ Overdue</option>
+          <option value="missed">❌ Missed</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Department</label>
+        <select id="filterDept" onchange="applyFilters()" title="Filter tasks by department">
+          <option value="">All Departments</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Equipment</label>
+        <select id="filterEquipment" onchange="applyFilters()" title="Filter tasks by specific equipment">
+          <option value="">All Equipment</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="followup" onclick="switchTab('followup')" title="View pending follow-up tasks that need attention">📋 Follow-up Tasks</button>
+      <button class="tab-btn" data-tab="defaulters" onclick="switchTab('defaulters')" title="View engineers and departments with overdue or missed tasks">🚨 Defaulters</button>
+      <button class="tab-btn" data-tab="equipment" onclick="switchTab('equipment')" title="View inspection and maintenance status per equipment">⚙️ Equipment Status</button>
+    </div>
+
+    <!-- Tab: Follow-up Tasks -->
+    <div id="tab-followup" class="tab-content">
+      <div class="page-header">
+        <h2>📋 Pending Follow-up Tasks</h2>
+        <span id="followupCount" class="tracking-count"></span>
+      </div>
+      <div id="followupTable"></div>
+    </div>
+
+    <!-- Tab: Defaulters -->
+    <div id="tab-defaulters" class="tab-content" style="display:none;">
+      <div class="page-header">
+        <h2>🚨 Non-Compliance — Defaulters</h2>
+        <p class="muted">Engineers/departments with overdue or missed tasks.</p>
+      </div>
+      <div id="defaultersTable"></div>
+    </div>
+
+    <!-- Tab: Equipment Status -->
+    <div id="tab-equipment" class="tab-content" style="display:none;">
+      <div class="page-header">
+        <h2>⚙️ Equipment Task Status</h2>
+        <p class="muted">Inspection and maintenance status per equipment.</p>
+      </div>
+      <div id="equipmentStatusTable"></div>
+    </div>
+  </div>
+
+  <script>
+    // Auth check
+    fetch('/api/auth/me').then(r => {
+      if (!r.ok) { window.location.href = '/?returnTo=' + encodeURIComponent(window.location.pathname); return Promise.reject(); }
+      return r.json();
+    }).then(user => {
+      if (user && user.role !== 'admin') window.location.href = '/dashboard.html';
+    }).catch(() => {});
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/';
+    });
+
+    // Alert badge
+    async function loadAlertBadge() {
+      try {
+        const res = await fetch('/api/notifications/unread-count');
+        const data = await res.json();
+        const badge = document.getElementById('alertBadge');
+        if (data.count > 0) {
+          badge.textContent = data.critical_count > 0 ? `🚨 ${data.count}` : data.count;
+          badge.style.display = 'inline';
+        } else { badge.style.display = 'none'; }
+      } catch (e) {}
+    }
+    loadAlertBadge();
+
+    // Tab switching
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + tab).style.display = 'block';
+      document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
+    }
+
+    // Load filter options
+    async function loadFilterOptions() {
+      try {
+        const [deptRes, eqRes] = await Promise.all([
+          fetch('/api/schedules/departments'),
+          fetch('/api/equipment')
+        ]);
+        const departments = await deptRes.json();
+        const equipment = await eqRes.json();
+
+        const deptSelect = document.getElementById('filterDept');
+        departments.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d; opt.textContent = d;
+          deptSelect.appendChild(opt);
+        });
+
+        const eqSelect = document.getElementById('filterEquipment');
+        equipment.forEach(e => {
+          const opt = document.createElement('option');
+          opt.value = e.id; opt.textContent = `${e.name} — ${e.location_name}`;
+          eqSelect.appendChild(opt);
+        });
+      } catch (e) {}
+    }
+    loadFilterOptions();
+
+    // Apply filters and reload
+    function applyFilters() {
+      loadFollowUp();
+      loadDefaulters();
+    }
+
+    function getFilterParams() {
+      const taskType = document.getElementById('filterTaskType').value;
+      const status = document.getElementById('filterStatus').value;
+      const dept = document.getElementById('filterDept').value;
+      const eq = document.getElementById('filterEquipment').value;
+      const params = new URLSearchParams();
+      if (taskType) params.set('task_type', taskType);
+      if (status) params.set('status', status);
+      if (dept) params.set('department', dept);
+      if (eq) params.set('equipment_id', eq);
+      return params.toString();
+    }
+
+    // ===== Follow-up Tasks =====
+    async function loadFollowUp() {
+      try {
+        const qs = getFilterParams();
+        const res = await fetch(`/api/schedules/follow-up?${qs}`);
+        const tasks = await res.json();
+        const container = document.getElementById('followupTable');
+
+        document.getElementById('followupCount').textContent = `${tasks.length} task(s)`;
+
+        if (!tasks.length) {
+          container.innerHTML = '<div class="card no-data"><p>✅ No pending follow-up tasks. Everything is on track!</p></div>';
+          return;
+        }
+
+        container.innerHTML = `
+          <div class="table-responsive">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th>Equipment</th>
+                  <th>Location</th>
+                  <th>Type</th>
+                  <th>Due Date</th>
+                  <th>Status</th>
+                  <th>Assigned To</th>
+                  <th>Department</th>
+                  <th>Frequency</th>
+                  <th>Days</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tasks.map(t => {
+                  const today = new Date();
+                  const due = new Date(t.due_date + 'T00:00:00+05:30');
+                  const diffDays = Math.floor((today - due) / (1000 * 60 * 60 * 24));
+                  const typeIcon = (t.task_type || 'inspection') === 'maintenance' ? '🔧' : '🔍';
+                  const rowClass = t.status === 'overdue' ? 'row-overdue' : t.status === 'missed' ? 'row-missed' : '';
+                  return `<tr class="${rowClass}">
+                    <td><strong>${escapeHtml(t.equipment_name)}</strong>${t.is_critical ? ' 🔴' : ''}</td>
+                    <td>${escapeHtml(t.location_name)}</td>
+                    <td>${typeIcon} ${capitalize(t.task_type || 'inspection')}</td>
+                    <td>${formatDate(t.due_date)}</td>
+                    <td>${statusTag(t.status)}</td>
+                    <td>${escapeHtml(t.sched_employee || '—')}</td>
+                    <td>${escapeHtml(t.sched_department || '—')}</td>
+                    <td>${capitalize(t.frequency)}</td>
+                    <td class="${diffDays > 0 ? 'text-danger' : ''}">${diffDays > 0 ? diffDays + 'd overdue' : 'Today'}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (e) { console.error('Failed to load follow-up:', e); }
+    }
+    loadFollowUp();
+
+    // ===== Defaulters =====
+    async function loadDefaulters() {
+      try {
+        const taskType = document.getElementById('filterTaskType').value;
+        const qs = taskType ? `task_type=${taskType}` : '';
+        const res = await fetch(`/api/schedules/defaulters?${qs}`);
+        const data = await res.json();
+
+        // Employee defaulters table
+        const defContainer = document.getElementById('defaultersTable');
+        if (!data.employee_defaulters.length) {
+          defContainer.innerHTML = '<div class="card no-data"><p>✅ No defaulters found. All assignments are being completed on time!</p></div>';
+        } else {
+          defContainer.innerHTML = `
+            <div class="table-responsive">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Employee ID</th>
+                    <th>Department</th>
+                    <th>Total Assigned</th>
+                    <th>Completed</th>
+                    <th>Overdue</th>
+                    <th>Missed</th>
+                    <th>Pending</th>
+                    <th>Last Completed</th>
+                    <th>Oldest Overdue</th>
+                    <th>Compliance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.employee_defaulters.map(d => {
+                    const rate = d.total_assigned > 0 ? Math.round((d.completed / d.total_assigned) * 100) : 0;
+                    const defaultScore = d.overdue + d.missed;
+                    const rowClass = defaultScore >= 5 ? 'row-critical' : defaultScore >= 2 ? 'row-overdue' : '';
+                    return `<tr class="${rowClass}">
+                      <td><strong>${escapeHtml(d.employee_id)}</strong></td>
+                      <td>${escapeHtml(d.department || '—')}</td>
+                      <td>${d.total_assigned}</td>
+                      <td>${d.completed}</td>
+                      <td class="text-danger"><strong>${d.overdue}</strong></td>
+                      <td class="text-danger"><strong>${d.missed}</strong></td>
+                      <td>${d.pending}</td>
+                      <td>${d.last_completed_at ? formatIST(d.last_completed_at) : '<span class="text-danger">Never</span>'}</td>
+                      <td class="text-danger">${d.oldest_overdue_date ? formatDate(d.oldest_overdue_date) : '—'}</td>
+                      <td>
+                        <div class="compliance-bar">
+                          <div class="compliance-fill ${rate >= 80 ? 'fill-good' : rate >= 50 ? 'fill-warn' : 'fill-bad'}" style="width:${rate}%"></div>
+                          <span>${rate}%</span>
+                        </div>
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        // Equipment status table
+        const eqContainer = document.getElementById('equipmentStatusTable');
+        if (!data.equipment_summary.length) {
+          eqContainer.innerHTML = '<div class="card no-data"><p>No equipment schedule data yet.</p></div>';
+        } else {
+          eqContainer.innerHTML = `
+            <div class="table-responsive">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Equipment</th>
+                    <th>Location</th>
+                    <th>Type</th>
+                    <th>Total</th>
+                    <th>Completed</th>
+                    <th>Overdue</th>
+                    <th>Missed</th>
+                    <th>Pending</th>
+                    <th>Last Done</th>
+                    <th>Compliance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.equipment_summary.map(eq => {
+                    const rate = eq.total_instances > 0 ? Math.round((eq.completed / eq.total_instances) * 100) : 0;
+                    const typeIcon = (eq.task_type || 'inspection') === 'maintenance' ? '🔧' : '🔍';
+                    return `<tr>
+                      <td><strong>${escapeHtml(eq.name)}</strong>${eq.is_critical ? ' 🔴' : ''}</td>
+                      <td>${escapeHtml(eq.location_name)}</td>
+                      <td>${typeIcon} ${capitalize(eq.task_type || 'inspection')}</td>
+                      <td>${eq.total_instances}</td>
+                      <td>${eq.completed}</td>
+                      <td class="${eq.overdue > 0 ? 'text-danger' : ''}">${eq.overdue}</td>
+                      <td class="${eq.missed > 0 ? 'text-danger' : ''}">${eq.missed}</td>
+                      <td>${eq.pending}</td>
+                      <td>${eq.last_completed_at ? formatIST(eq.last_completed_at) : '<span class="text-danger">Never</span>'}</td>
+                      <td>
+                        <div class="compliance-bar">
+                          <div class="compliance-fill ${rate >= 80 ? 'fill-good' : rate >= 50 ? 'fill-warn' : 'fill-bad'}" style="width:${rate}%"></div>
+                          <span>${rate}%</span>
+                        </div>
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+      } catch (e) { console.error('Failed to load defaulters:', e); }
+    }
+    loadDefaulters();
+
+    // ===== Helpers =====
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    function capitalize(str) {
+      return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '—';
+      const d = new Date(dateStr + 'T00:00:00+05:30');
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+    }
+
+    function formatIST(dateStr) {
+      if (!dateStr) return '—';
+      const d = new Date(dateStr.replace(' ', 'T') + '+05:30');
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' }) +
+        ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+    }
+
+    function statusTag(status) {
+      switch (status) {
+        case 'completed': return '<span class="tag tag-normal">✅ Completed</span>';
+        case 'overdue': return '<span class="tag tag-abnormal">⚠️ Overdue</span>';
+        case 'missed': return '<span class="tag tag-abnormal">❌ Missed</span>';
+        default: return '<span class="tag tag-warning">⏳ Pending</span>';
+      }
+    }
+  </script>
+</body>
+</html>

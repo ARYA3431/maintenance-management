@@ -7,6 +7,9 @@ let userAccuracy = null;
 let photoBase64 = null;
 let filledCount = 0;
 let totalFields = 0;
+let selectedTaskType = 'inspection'; // 'inspection' or 'maintenance'
+let currentStep = 'employee'; // tracks current step for back button
+let employeeName = ''; // store verified employee name
 
 // Get QR token and scan session from URL
 const pathParts = window.location.pathname.split('/');
@@ -57,11 +60,29 @@ async function verifyEmployee() {
       return;
     }
 
-    // Success — hide step and continue to next steps
+    // Success — store employee name and greet
+    employeeName = data.fullName || '';
+    const greetEl = document.getElementById('employeeGreeting');
+    if (greetEl && employeeName) {
+      greetEl.textContent = '\u2705 Welcome, ' + employeeName + '!';
+      greetEl.style.display = 'block';
+    }
+    // Update nav title with employee name
+    const navTitle = document.getElementById('navTitle');
+    if (navTitle && employeeName) {
+      navTitle.textContent = '\ud83d\udc4b ' + employeeName.split(' ')[0];
+    }
+
+    // Brief delay so user sees greeting before moving on
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Hide step and continue to next steps
     document.getElementById('employeeIdStep').style.display = 'none';
+    currentStep = 'location';
     if (!(await loadEquipment())) return;
     if (!(await verifyLocation())) return;
-    renderForm();
+    currentStep = 'taskType';
+    showTaskTypeChooser();
   } catch {
     errorEl.textContent = 'Connection error. Please try again.';
     errorEl.style.display = 'block';
@@ -151,6 +172,32 @@ function showLocationError(msg) {
 function skipLocation() {
   document.getElementById('locationDenied').style.display = 'none';
   if (locationResolve) { locationResolve(true); locationResolve = null; }
+}
+
+// Show Task Type Chooser
+function showTaskTypeChooser() {
+  document.getElementById('taskTypeStep').style.display = 'block';
+}
+
+// Select task type and proceed to form
+function selectTaskType(type) {
+  selectedTaskType = type;
+  document.getElementById('taskTypeStep').style.display = 'none';
+  currentStep = 'form';
+
+  // Update badge
+  const badge = document.getElementById('taskTypeBadge');
+  if (type === 'maintenance') {
+    badge.textContent = '🔧 Maintenance';
+    badge.className = 'task-type-badge badge-maintenance';
+    document.getElementById('maintenanceExtraFields').style.display = 'block';
+  } else {
+    badge.textContent = '🔍 Inspection';
+    badge.className = 'task-type-badge badge-inspection';
+    document.getElementById('maintenanceExtraFields').style.display = 'none';
+  }
+
+  renderForm();
 }
 
 // Step 4: Render form as mobile-friendly cards
@@ -245,6 +292,9 @@ function renderForm() {
   });
 
   document.getElementById('maintenanceSection').style.display = 'block';
+
+  // Attach real-time abnormality detection
+  setTimeout(attachAbnormalityListeners, 100);
 }
 
 // Pill selector for dropdown replacement
@@ -351,6 +401,7 @@ document.getElementById('maintenanceForm').addEventListener('submit', async (e) 
 
   const body = {
     equipment_id: currentEquipment.id,
+    task_type: selectedTaskType,
     values,
     notes: document.getElementById('notes').value.trim(),
     user_lat: userLat,
@@ -359,6 +410,26 @@ document.getElementById('maintenanceForm').addEventListener('submit', async (e) 
     scan_session_id: scanSessionId || null,
     photo: photoBase64 || null
   };
+
+  // Add maintenance-specific fields
+  if (selectedTaskType === 'maintenance') {
+    body.work_done = document.getElementById('workDone').value.trim();
+    body.parts_replaced = document.getElementById('partsReplaced').value.trim();
+    body.time_spent_minutes = parseInt(document.getElementById('timeSpent').value) || null;
+
+    if (!body.work_done) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Report';
+      alert('Please describe the work done.');
+      return;
+    }
+  }
+
+  // Add evidence fields
+  const abnormalReasonEl = document.getElementById('abnormalReason');
+  const correctiveActionEl = document.getElementById('correctiveAction');
+  if (abnormalReasonEl && abnormalReasonEl.value.trim()) body.abnormal_reason = abnormalReasonEl.value.trim();
+  if (correctiveActionEl && correctiveActionEl.value.trim()) body.corrective_action = correctiveActionEl.value.trim();
 
   try {
     const res = await fetch('/api/maintenance/submit', {
@@ -371,9 +442,23 @@ document.getElementById('maintenanceForm').addEventListener('submit', async (e) 
     if (!res.ok) {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Submit Report';
-      alert(result.error || 'Failed to submit report');
+
+      // If GPS distance rejection (403), show "Submit Always" button
+      if (res.status === 403 && result.distance != null) {
+        const forceBtn = document.getElementById('forceSubmitBtn');
+        const warnMsg = document.getElementById('gpsWarningMsg');
+        warnMsg.textContent = result.error || `You are ${result.distance}m away (allowed: ${result.allowed_radius}m)`;
+        warnMsg.style.display = 'block';
+        forceBtn.style.display = 'block';
+      } else {
+        alert(result.error || 'Failed to submit report');
+      }
       return;
     }
+
+    // Hide force submit on success
+    document.getElementById('forceSubmitBtn').style.display = 'none';
+    document.getElementById('gpsWarningMsg').style.display = 'none';
 
     document.getElementById('maintenanceSection').style.display = 'none';
     document.getElementById('successSection').style.display = 'block';
@@ -393,7 +478,116 @@ document.getElementById('maintenanceForm').addEventListener('submit', async (e) 
         : 'An abnormality was found. Admin has been notified. Please take necessary precautions.';
       document.getElementById('abnormalityPopup').style.display = 'flex';
     }
-  } catch {
+  } catch (err) {
+    // Offline support: save to IndexedDB
+    if (!navigator.onLine) {
+      try {
+        await saveOfflineSubmission(body);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Report';
+        document.getElementById('maintenanceSection').style.display = 'none';
+        document.getElementById('successSection').style.display = 'block';
+        document.getElementById('successMessage').textContent = '📡 Saved offline! Your report will be submitted automatically when connection returns.';
+        // Request background sync
+        if ('serviceWorker' in navigator && 'SyncManager' in window) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.sync.register('submit-maintenance');
+        }
+        return;
+      } catch (offlineErr) {
+        console.error('Offline save failed:', offlineErr);
+      }
+    }
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit Report';
+    alert('Network error. Please check your connection.');
+  }
+});
+
+// "Submit Always" — force submit overriding GPS check
+document.getElementById('forceSubmitBtn').addEventListener('click', async () => {
+  const submitBtn = document.getElementById('submitBtn');
+  const forceBtn = document.getElementById('forceSubmitBtn');
+  forceBtn.disabled = true;
+  forceBtn.textContent = 'Submitting...';
+  submitBtn.disabled = true;
+
+  const values = [];
+  currentEquipment.fields.forEach(field => {
+    const el = document.getElementById(`field_${field.id}`);
+    let value = '';
+    if (field.field_type === 'checkbox') {
+      value = el.checked ? 'true' : 'false';
+    } else {
+      value = el.value;
+    }
+    values.push({ field_id: field.id, value });
+  });
+
+  const body = {
+    equipment_id: currentEquipment.id,
+    task_type: selectedTaskType,
+    values,
+    notes: document.getElementById('notes').value.trim(),
+    user_lat: userLat,
+    user_lng: userLng,
+    accuracy: userAccuracy,
+    scan_session_id: scanSessionId || null,
+    photo: photoBase64 || null,
+    force_submit: true
+  };
+
+  if (selectedTaskType === 'maintenance') {
+    body.work_done = document.getElementById('workDone').value.trim();
+    body.parts_replaced = document.getElementById('partsReplaced').value.trim();
+    body.time_spent_minutes = parseInt(document.getElementById('timeSpent').value) || null;
+  }
+  const abnormalReasonEl = document.getElementById('abnormalReason');
+  const correctiveActionEl = document.getElementById('correctiveAction');
+  if (abnormalReasonEl && abnormalReasonEl.value.trim()) body.abnormal_reason = abnormalReasonEl.value.trim();
+  if (correctiveActionEl && correctiveActionEl.value.trim()) body.corrective_action = correctiveActionEl.value.trim();
+
+  try {
+    const res = await fetch('/api/maintenance/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const result = await res.json();
+
+    if (!res.ok) {
+      forceBtn.disabled = false;
+      forceBtn.textContent = '⚠️ Submit Always (Override GPS)';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Report';
+      alert(result.error || 'Failed to submit report');
+      return;
+    }
+
+    forceBtn.style.display = 'none';
+    document.getElementById('gpsWarningMsg').style.display = 'none';
+    document.getElementById('maintenanceSection').style.display = 'none';
+    document.getElementById('successSection').style.display = 'block';
+
+    let msg = result.message || 'Report submitted.';
+    if (result.verification_status === 'override') msg += ' | GPS Override ⚠️';
+    else if (result.verification_status === 'verified') msg += ' | GPS ✓';
+    else msg += ' | GPS unverified';
+    if (result.dwell_time_minutes > 0) msg += ` | ${result.dwell_time_minutes} min on site`;
+    document.getElementById('successMessage').textContent = msg;
+
+    if (result.has_abnormality) {
+      const isCritical = result.has_critical_abnormality;
+      document.getElementById('abnormalTitle').textContent = isCritical
+        ? '🚨 Critical Abnormality' : '⚠️ Abnormality Detected';
+      document.getElementById('abnormalityMessage').textContent = isCritical
+        ? 'A CRITICAL field abnormality was found. Admin has been urgently notified.'
+        : 'An abnormality was found. Admin has been notified.';
+      document.getElementById('abnormalityPopup').style.display = 'flex';
+    }
+  } catch (err) {
+    forceBtn.disabled = false;
+    forceBtn.textContent = '⚠️ Submit Always (Override GPS)';
     submitBtn.disabled = false;
     submitBtn.textContent = 'Submit Report';
     alert('Network error. Please check your connection.');
@@ -407,5 +601,111 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Offline save
+async function saveOfflineSubmission(data) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('MaintenanceMMS', 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('pending_submissions')) {
+        db.createObjectStore('pending_submissions', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('pending_submissions', 'readwrite');
+      tx.objectStore('pending_submissions').add({ data, timestamp: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// Show evidence fields when abnormality is detected in real-time
+function checkForAbnormalities() {
+  if (!currentEquipment || !currentEquipment.fields) return;
+  let hasAbnormal = false;
+
+  currentEquipment.fields.forEach(field => {
+    const el = document.getElementById(`field_${field.id}`);
+    if (!el) return;
+
+    if (field.field_type === 'number' && el.value !== '') {
+      const num = parseFloat(el.value);
+      if (!isNaN(num)) {
+        if ((field.min_value != null && num < field.min_value) || (field.max_value != null && num > field.max_value)) {
+          hasAbnormal = true;
+          el.closest('.field-card')?.classList.add('field-abnormal');
+        } else {
+          el.closest('.field-card')?.classList.remove('field-abnormal');
+        }
+      }
+    }
+    if (field.field_type === 'select' && el.value) {
+      const lower = el.value.toLowerCase();
+      if (['abnormal','faulty','bad','critical','not working','damaged','broken','severe','disabled'].includes(lower)) {
+        hasAbnormal = true;
+        el.closest('.field-card')?.classList.add('field-abnormal');
+      } else {
+        el.closest('.field-card')?.classList.remove('field-abnormal');
+      }
+    }
+    if (field.field_type === 'checkbox' && el.checked) {
+      const name = field.field_name.toLowerCase();
+      if (name.includes('abnormal') || name.includes('issue') || name.includes('fault') || name.includes('leak') || name.includes('damage')) {
+        hasAbnormal = true;
+        el.closest('.field-card')?.classList.add('field-abnormal');
+      }
+    }
+  });
+
+  const evidenceFields = document.getElementById('evidenceFields');
+  if (evidenceFields) {
+    evidenceFields.style.display = hasAbnormal ? 'block' : 'none';
+  }
+}
+
+// Attach listeners for real-time abnormality detection
+function attachAbnormalityListeners() {
+  if (!currentEquipment || !currentEquipment.fields) return;
+  currentEquipment.fields.forEach(field => {
+    const el = document.getElementById(`field_${field.id}`);
+    if (!el) return;
+    el.addEventListener('change', checkForAbnormalities);
+    el.addEventListener('input', checkForAbnormalities);
+  });
+}
+
 // Init — show Employee ID step first
+currentStep = 'employee';
 showEmployeeIdStep();
+
+// Back button logic — navigate steps
+function goBack() {
+  if (currentStep === 'form') {
+    document.getElementById('maintenanceSection').style.display = 'none';
+    document.getElementById('taskTypeStep').style.display = 'block';
+    currentStep = 'taskType';
+  } else if (currentStep === 'taskType') {
+    document.getElementById('taskTypeStep').style.display = 'none';
+    resetEmployeeStep();
+    currentStep = 'employee';
+  } else if (currentStep === 'location') {
+    document.getElementById('locationCheck').style.display = 'none';
+    document.getElementById('locationDenied').style.display = 'none';
+    resetEmployeeStep();
+    currentStep = 'employee';
+  } else {
+    window.location.href = '/dashboard.html';
+  }
+}
+
+function resetEmployeeStep() {
+  document.getElementById('employeeIdStep').style.display = 'block';
+  const btn = document.getElementById('verifyEmployeeBtn');
+  btn.disabled = false;
+  btn.textContent = 'Verify & Continue';
+  document.getElementById('employeeError').style.display = 'none';
+  document.getElementById('employeeGreeting').style.display = 'none';
+}

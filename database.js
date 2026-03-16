@@ -100,6 +100,57 @@ async function initializeDatabase() {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // === Scheduling Tables ===
+  db.run(`CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    equipment_id TEXT NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'inspection' CHECK(task_type IN ('inspection','maintenance')),
+    frequency TEXT NOT NULL CHECK(frequency IN ('daily','weekly','biweekly','monthly','quarterly','yearly')),
+    assigned_employee_id TEXT,
+    assigned_department TEXT,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    grace_period_hours INTEGER DEFAULT 24,
+    is_active INTEGER DEFAULT 1,
+    next_due_date TEXT,
+    created_by TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS schedule_instances (
+    id TEXT PRIMARY KEY,
+    schedule_id TEXT NOT NULL,
+    equipment_id TEXT NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'inspection' CHECK(task_type IN ('inspection','maintenance')),
+    due_date TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending','completed','overdue','missed')),
+    assigned_employee_id TEXT,
+    assigned_department TEXT,
+    completed_by TEXT,
+    completed_at DATETIME,
+    record_id TEXT,
+    escalated INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE,
+    FOREIGN KEY (record_id) REFERENCES maintenance_records(id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS engineer_notifications (
+    id TEXT PRIMARY KEY,
+    employee_id TEXT,
+    department TEXT,
+    instance_id TEXT,
+    equipment_id TEXT,
+    type TEXT NOT NULL CHECK(type IN ('upcoming','due_today','overdue','escalation')),
+    message TEXT NOT NULL,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (instance_id) REFERENCES schedule_instances(id),
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id)
+  )`);
+
   // Seed defaults
   const result = queryAll("SELECT id FROM users WHERE role = 'admin'");
 
@@ -125,6 +176,117 @@ async function initializeDatabase() {
   try { db.run("ALTER TABLE maintenance_records ADD COLUMN verification_status TEXT DEFAULT 'unverified'"); } catch(e) {}
   try { db.run("ALTER TABLE maintenance_records ADD COLUMN photo_path TEXT"); } catch(e) {}
   try { db.run("ALTER TABLE maintenance_records ADD COLUMN status TEXT DEFAULT 'pending'"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN task_type TEXT DEFAULT 'inspection'"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN work_done TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN parts_replaced TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN time_spent_minutes INTEGER"); } catch(e) {}
+
+  // Migration: add task_type to schedules and instances
+  try { db.run("ALTER TABLE schedules ADD COLUMN task_type TEXT DEFAULT 'inspection'"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN task_type TEXT DEFAULT 'inspection'"); } catch(e) {}
+
+  // Migration: add is_archived to equipment
+  try { db.run("ALTER TABLE equipment ADD COLUMN is_archived INTEGER DEFAULT 0"); } catch(e) {}
+
+  // Migration: Enhanced workflow fields on maintenance_records
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN severity TEXT DEFAULT 'normal'"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN exception_class TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN corrective_action TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN abnormal_reason TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN reviewed_by TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN reviewed_at DATETIME"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN review_notes TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE maintenance_records ADD COLUMN has_critical_abnormality INTEGER DEFAULT 0"); } catch(e) {}
+
+  // Migration: Enhanced workflow fields on schedule_instances
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN accepted_at DATETIME"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN started_at DATETIME"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN blocked_reason TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN reviewed_by TEXT"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN reviewed_at DATETIME"); } catch(e) {}
+  try { db.run("ALTER TABLE schedule_instances ADD COLUMN review_notes TEXT"); } catch(e) {}
+
+  // === Findings table: tracks abnormalities lifecycle ===
+  db.run(`CREATE TABLE IF NOT EXISTS findings (
+    id TEXT PRIMARY KEY,
+    record_id TEXT NOT NULL,
+    equipment_id TEXT NOT NULL,
+    field_id TEXT,
+    field_name TEXT,
+    reported_value TEXT,
+    normal_range TEXT,
+    severity TEXT DEFAULT 'normal' CHECK(severity IN ('normal','warning','critical','emergency')),
+    exception_class TEXT CHECK(exception_class IN ('abnormal_but_running','watchlist','urgent_maintenance','immediate_shutdown')),
+    status TEXT DEFAULT 'open' CHECK(status IN ('open','acknowledged','in_progress','resolved','closed','deferred')),
+    corrective_action TEXT,
+    root_cause TEXT,
+    assigned_to TEXT,
+    assigned_department TEXT,
+    reported_by TEXT,
+    reported_by_name TEXT,
+    acknowledged_by TEXT,
+    acknowledged_at DATETIME,
+    resolved_by TEXT,
+    resolved_at DATETIME,
+    resolution_notes TEXT,
+    due_date TEXT,
+    is_repeat INTEGER DEFAULT 0,
+    repeat_count INTEGER DEFAULT 0,
+    parent_finding_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (record_id) REFERENCES maintenance_records(id),
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id),
+    FOREIGN KEY (field_id) REFERENCES maintenance_fields(id)
+  )`);
+
+  // === Escalation rules table ===
+  db.run(`CREATE TABLE IF NOT EXISTS escalation_rules (
+    id TEXT PRIMARY KEY,
+    equipment_id TEXT,
+    severity TEXT DEFAULT 'normal',
+    hours_to_supervisor REAL DEFAULT 24,
+    hours_to_manager REAL DEFAULT 48,
+    hours_to_plant_head REAL DEFAULT 72,
+    auto_escalate INTEGER DEFAULT 1,
+    notify_on_create INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (equipment_id) REFERENCES equipment(id)
+  )`);
+
+  // === Review actions log ===
+  db.run(`CREATE TABLE IF NOT EXISTS review_actions (
+    id TEXT PRIMARY KEY,
+    record_id TEXT,
+    finding_id TEXT,
+    instance_id TEXT,
+    action_type TEXT NOT NULL CHECK(action_type IN ('approve','reject','escalate','defer','reopen','close','comment')),
+    action_by TEXT NOT NULL,
+    action_by_name TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // === Store Inventory Transactions ===
+  db.run(`CREATE TABLE IF NOT EXISTS store_transactions (
+    id TEXT PRIMARY KEY,
+    item_name TEXT NOT NULL,
+    item_location TEXT,
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('IN','OUT')),
+    quantity INTEGER NOT NULL,
+    employee_id TEXT NOT NULL,
+    employee_name TEXT,
+    employee_department TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Seed default escalation rules if none exist
+  const existingRules = queryAll("SELECT id FROM escalation_rules LIMIT 1");
+  if (existingRules.length === 0) {
+    runSql(`INSERT INTO escalation_rules (id, equipment_id, severity, hours_to_supervisor, hours_to_manager, hours_to_plant_head, auto_escalate, notify_on_create) VALUES (?, NULL, 'critical', 4, 12, 24, 1, 1)`, [uuidv4()]);
+    runSql(`INSERT INTO escalation_rules (id, equipment_id, severity, hours_to_supervisor, hours_to_manager, hours_to_plant_head, auto_escalate, notify_on_create) VALUES (?, NULL, 'warning', 24, 48, 72, 1, 0)`, [uuidv4()]);
+    runSql(`INSERT INTO escalation_rules (id, equipment_id, severity, hours_to_supervisor, hours_to_manager, hours_to_plant_head, auto_escalate, notify_on_create) VALUES (?, NULL, 'normal', 48, 96, 168, 1, 0)`, [uuidv4()]);
+  }
 
   if (result.length === 0) {
     const adminId = uuidv4();
